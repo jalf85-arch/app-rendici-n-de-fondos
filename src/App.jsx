@@ -57,22 +57,30 @@ async function extractDocumentData(file, apiKey) {
       try {
         const base64 = e.target.result.split(',')[1];
         const mimeType = file.type || 'image/jpeg';
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [
               { inline_data: { mime_type: mimeType, data: base64 } },
-              { text: 'Extrae datos de esta boleta/factura chilena. Responde SOLO JSON válido:\n{"proveedor":"nombre","rut":"XX.XXX.XXX-X","monto":numero,"fecha":"YYYY-MM-DD","ndoc":"folio","items":"descripción"}\nSin explicaciones. Solo el JSON.' }
+              { text: 'Extrae datos de esta boleta/factura chilena. Responde SOLO JSON válido sin ningún texto extra:\n{"proveedor":"nombre empresa","rut":"XX.XXX.XXX-X","monto":12345,"fecha":"YYYY-MM-DD","ndoc":"folio","items":"descripción de items"}\nIMPORTANTE: Solo el objeto JSON, sin markdown, sin explicaciones.' }
             ]}],
-            generationConfig: { maxOutputTokens: 500 }
+            generationConfig: { maxOutputTokens: 500, temperature: 0 }
           })
         });
-        if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'API error'); }
+        if (!res.ok) {
+          const err = await res.json();
+          const msg = err.error?.message || `HTTP ${res.status}`;
+          console.error('[Gemini OCR] API error:', msg, err);
+          throw new Error(msg);
+        }
         const data = await res.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-        resolve(JSON.parse(text.replace(/```json|```/g, '').trim()));
-      } catch (err) { reject(err); }
+        console.log('[Gemini OCR] raw response:', text);
+        const match = text.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error('Respuesta no contiene JSON');
+        resolve(JSON.parse(match[0]));
+      } catch (err) { console.error('[Gemini OCR] error:', err); reject(err); }
     };
     reader.onerror = () => reject(new Error('Error leyendo archivo'));
     reader.readAsDataURL(file);
@@ -153,6 +161,7 @@ function FLabel({ children }) {
 function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
   const [file, setFile] = useState(null);
   const [ocr, setOcr] = useState(null);
+  const [ocrError, setOcrError] = useState('');
   const [aiFields, setAiFields] = useState([]);
   const [form, setForm] = useState({ proveedor:'', rut:'', monto:'', fecha:today(), ndoc:'', items:'', categoria:'Insumos', centroCosto:'Administración', comentario:'' });
   const [saving, setSaving] = useState(false);
@@ -165,7 +174,7 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
     if (f.size > 8 * 1024 * 1024) { toast('Archivo muy grande (máx 8MB)', 'err'); return; }
     setFile(f);
     if (!geminiKey) { setOcr(null); toast('Sin API key — completa los campos manualmente', 'inf'); return; }
-    setOcr('loading'); setAiFields([]);
+    setOcr('loading'); setAiFields([]); setOcrError('');
     try {
       const data = await extractDocumentData(f, geminiKey);
       const filled = []; const nf = { ...form };
@@ -177,7 +186,7 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
       if (data.items) { nf.items = data.items; filled.push('items'); }
       setForm(nf); setAiFields(filled); setOcr('done');
       toast(`✨ Gemini extrajo ${filled.length} campos`, 'inf');
-    } catch (err) { setOcr('error'); toast('No se pudo leer. Completa manualmente.', 'err'); }
+    } catch (err) { setOcr('error'); setOcrError(err.message || 'Error desconocido'); }
   };
 
   const handleSubmit = async () => {
@@ -212,7 +221,7 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
           <div style={{ fontSize:12, color:S.acc2, marginBottom:3 }}>✨ {aiFields.length} campos completados automáticamente</div>
           <div style={{ fontSize:11, color:S.tx3 }}>Los campos en morado fueron extraídos. Revisa antes de enviar.</div>
         </div>}
-        {ocr === 'error' && <div style={{ marginTop:8, padding:'8px 12px', background:'#1c0505', border:'1px solid #7f1d1d40', borderRadius:8, fontSize:12, color:S.err }}>⚠️ No se pudo leer. Completa manualmente.</div>}
+        {ocr === 'error' && <div style={{ marginTop:8, padding:'8px 12px', background:'#1c0505', border:'1px solid #7f1d1d40', borderRadius:8, fontSize:12, color:S.err }}>⚠️ Error OCR: {ocrError || 'desconocido'}<br/><span style={{color:S.tx3,fontSize:11}}>Completa los campos manualmente.</span></div>}
       </div>
 
       <div style={row}>
