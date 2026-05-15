@@ -51,12 +51,34 @@ async function saveGeminiKeyStorage(val) {
 function initUsers() { const d = {}; USERS.forEach(u => { d[u.id] = { assigned: 0, spent: 0, balance: 0 }; }); return d; }
 
 async function extractDocumentData(file, apiKey) {
+  return async function compressImage(file) {
+  return new Promise((resolve) => {
+    if (file.type === 'application/pdf') { resolve(file); return; }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const max = 1024;
+      let w = img.width, h = img.height;
+      if (w > max) { h = h * max / w; w = max; }
+      if (h > max) { w = w * max / h; h = max; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.7);
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  });
+}
+
+async function extractDocumentData(file, apiKey) {
+  const compressed = await compressImage(file);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
         const base64 = e.target.result.split(',')[1];
-        const mimeType = file.type || 'image/jpeg';
+        const mimeType = 'image/jpeg';
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
