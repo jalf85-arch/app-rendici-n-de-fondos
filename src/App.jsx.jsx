@@ -42,7 +42,7 @@ async function saveUsers(data) {
   try { const rows = Object.entries(data).map(([id,d])=>({ user_id:id, assigned:d.assigned||0, spent:d.spent||0, balance:d.balance||0 })); await sbFetch('/user_data', { method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body:JSON.stringify(rows) }); } catch(e) {}
 }
 async function loadGeminiKey() {
-  try { const r = await sbFetch('/config?key=eq.gemini_key&select=value'); const d = await r.json(); return d?.[0]?.value || localStorage.getItem('gemini_api_key') || ''; } catch(e) { return localStorage.getItem('gemini_api_key') || ''; }
+  return 'AIzaSyCkwdiHP1q5fjPjBINuGQVfA-ce8Psu5ZQ';
 }
 async function saveGeminiKeyStorage(val) {
   try { await sbFetch('/config', { method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body:JSON.stringify({ key:'gemini_key', value:val }) }); } catch(e) {}
