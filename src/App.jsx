@@ -203,8 +203,8 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
     <div>
       <div style={{ marginBottom:12 }}>
         <FLabel>Documento <span style={{ fontSize:11, fontWeight:700, padding:'2px 7px', borderRadius:20, background:'#1a1535', color:S.acc2, border:`1px solid ${S.acc}`, marginLeft:6 }}>✨ Gemini lee automático</span></FLabel>
-        <div style={{ position:'relative', border:`2px dashed ${S.brd2}`, borderRadius:12, padding:'1.5rem', textAlign:'center', cursor:'pointer' }}>
-          <input type="file" accept="image/*,.pdf" onChange={handleFile} disabled={ocr === 'loading'} style={{ position:'absolute', inset:0, opacity:0, cursor:'pointer', width:'100%', height:'100%' }} />
+        <div style={{ position:'relative', border:`2px dashed ${S.brd2}`, borderRadius:12, padding:'1.5rem', textAlign:'center', cursor:'pointer', overflow:'hidden' }}>
+          <input type="file" accept="image/*,.pdf" onChange={handleFile} disabled={ocr === 'loading'} style={{ position:'absolute', inset:0, opacity:0, cursor:'pointer' }} />
           {!file
             ? <><div style={{ fontSize:28, marginBottom:4 }}>📎</div><div style={{ fontSize:13, color:S.tx2 }}>Foto o PDF de boleta / factura</div><div style={{ fontSize:11, color:S.tx3, marginTop:3 }}>JPG · PNG · PDF — máx 8 MB</div></>
             : <div style={{ display:'flex', alignItems:'center', gap:10, justifyContent:'center' }}>
