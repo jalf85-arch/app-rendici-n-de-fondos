@@ -82,7 +82,8 @@ async function extractDocumentData(file, apiKey) {
               { inline_data: { mime_type: mimeType, data: base64 } },
               { text: 'Extrae datos de esta boleta/factura chilena. Responde SOLO JSON válido sin ningún texto extra:\n{"proveedor":"nombre empresa","rut":"XX.XXX.XXX-X","monto":12345,"fecha":"YYYY-MM-DD","ndoc":"folio","items":"descripción de items"}\nIMPORTANTE: Solo el objeto JSON, sin markdown, sin explicaciones.' }
             ]}],
-            generationConfig: { maxOutputTokens: 500, temperature: 0 }
+            generationConfig: { maxOutputTokens: 500, temperature: 0 },
+            thinkingConfig: { thinkingBudget: 0 }
           })
         });
         if (!res.ok) {
@@ -802,7 +803,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      try { const [exps, ud, key] = await Promise.all([loadAll(), loadUsers(), loadGeminiKey()]); setExpenses(exps); setUserData(ud || initUsers()); setGeminiKey(key); }
+      try { const [exps, ud, key] = await Promise.all([loadAll(), loadUsers(), loadGeminiKey()]); setExpenses(exps); setUserData(ud || initUsers()); setGeminiKey(key); if (key) setKeySaved(true); }
       catch (e) { setUserData(initUsers()); }
       setLoading(false);
     })();
