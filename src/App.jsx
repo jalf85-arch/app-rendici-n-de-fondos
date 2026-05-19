@@ -26,8 +26,22 @@ const sbFetch = (path, opts = {}) => fetch(`${SB_URL}/rest/v1${path}`, {
   headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation', ...(opts.headers || {}) }
 });
 
-const mapToDB = e => ({ id:e.id, user_id:e.userId, user_name:e.userName, proveedor:e.proveedor, rut:e.rut||null, monto:e.monto, fecha:e.fecha, ndoc:e.ndoc||null, items:e.items||null, categoria:e.categoria, centro_costo:e.centroCosto||null, comentario:e.comentario||null, status:e.status, admin_comment:e.adminComment||null, ai_extracted:e.aiExtracted||false, file_name:e.fileName||null, created_at:e.createdAt });
-const mapFromDB = r => ({ id:r.id, userId:r.user_id, userName:r.user_name, proveedor:r.proveedor, rut:r.rut, monto:Number(r.monto), fecha:r.fecha, ndoc:r.ndoc, items:r.items, categoria:r.categoria, centroCosto:r.centro_costo, comentario:r.comentario, status:r.status, adminComment:r.admin_comment, aiExtracted:r.ai_extracted, fileName:r.file_name, createdAt:r.created_at });
+const mapToDB = e => ({ id:e.id, user_id:e.userId, user_name:e.userName, proveedor:e.proveedor, rut:e.rut||null, monto:e.monto, fecha:e.fecha, ndoc:e.ndoc||null, items:e.items||null, categoria:e.categoria, centro_costo:e.centroCosto||null, comentario:e.comentario||null, status:e.status, admin_comment:e.adminComment||null, ai_extracted:e.aiExtracted||false, file_name:e.fileName||null, file_url:e.fileUrl||null, created_at:e.createdAt });
+const mapFromDB = r => ({ id:r.id, userId:r.user_id, userName:r.user_name, proveedor:r.proveedor, rut:r.rut, monto:Number(r.monto), fecha:r.fecha, ndoc:r.ndoc, items:r.items, categoria:r.categoria, centroCosto:r.centro_costo, comentario:r.comentario, status:r.status, adminComment:r.admin_comment, aiExtracted:r.ai_extracted, fileName:r.file_name, fileUrl:r.file_url, createdAt:r.created_at });
+
+async function uploadFile(file, expenseId, userId) {
+  try {
+    const ext = file.name.split('.').pop();
+    const path = `${userId}/${expenseId}.${ext}`;
+    const res = await fetch(`${SB_URL}/storage/v1/object/comprobantes/${path}`, {
+      method: 'POST',
+      headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`, 'Content-Type': file.type, 'x-upsert': 'true' },
+      body: file
+    });
+    if (!res.ok) return null;
+    return `${SB_URL}/storage/v1/object/public/comprobantes/${path}`;
+  } catch(e) { return null; }
+}
 
 async function loadAll() {
   try { const r = await sbFetch('/expenses?select=*&order=created_at.desc'); const d = await r.json(); return Array.isArray(d) ? d.map(mapFromDB) : []; } catch(e) { return []; }
@@ -193,7 +207,9 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
     if (!form.proveedor.trim()) { toast('Ingresa el proveedor', 'err'); return; }
     if (!form.monto || isNaN(Number(form.monto))) { toast('Monto inválido', 'err'); return; }
     setSaving(true);
-    const exp = { id:genId(), userId:user.id, userName:user.name, ...form, monto:Number(form.monto), status:'pending', createdAt:new Date().toISOString(), fileName:file?.name || null, adminComment:'', aiExtracted:aiFields.length > 0 };
+    const expId = genId();
+    const fileUrl = file ? await uploadFile(file, expId, user.id) : null;
+    const exp = { id:expId, userId:user.id, userName:user.name, ...form, monto:Number(form.monto), status:'pending', createdAt:new Date().toISOString(), fileName:file?.name || null, fileUrl, adminComment:'', aiExtracted:aiFields.length > 0 };
     await saveExpense(exp); toast('Rendición enviada', 'ok'); onSave(exp); setSaving(false);
   };
 
@@ -578,6 +594,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
                         <td style={tdStyle}>
                           <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
                             <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => setDetailExp(e)}>Ver</button>
+                            {e.fileUrl && <a href={e.fileUrl} target="_blank" rel="noreferrer" style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7, textDecoration:'none', color:S.acc2 }}>📎</a>}
                             <button style={{ ...css.btn('ok'), padding:'5px 10px', fontSize:12 }} onClick={() => { setInlineAction({ exp:e, type:'approve' }); setInlineComment(''); }}>✓ Aprobar</button>
                             <button style={{ ...css.btn('err'), padding:'5px 10px', fontSize:12 }} onClick={() => { setInlineAction({ exp:e, type:'reject' }); setInlineComment(''); }}>✕ Rechazar</button>
                           </div>
@@ -633,6 +650,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
                       <td style={tdStyle}><StatusBadge status={e.status} /></td>
                       <td style={tdStyle}><div style={{ display:'flex', gap:6 }}>
                         <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => setDetailExp(e)}>Ver</button>
+                        {e.fileUrl && <a href={e.fileUrl} target="_blank" rel="noreferrer" style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7, textDecoration:'none', color:S.acc2 }}>📎</a>}
                         {e.status === 'approved' && <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => generatePDF(e)}>↓ PDF</button>}
                         {e.status === 'pending' && <>
                           <button style={{ ...css.btn('ok'), padding:'5px 9px', fontSize:12 }} onClick={() => { setActionModal({ exp:e, type:'approve' }); setComment(''); }}>✓</button>
