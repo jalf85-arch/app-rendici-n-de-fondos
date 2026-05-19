@@ -49,6 +49,9 @@ async function loadAll() {
 async function saveExpense(exp) {
   try { await sbFetch('/expenses', { method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body:JSON.stringify(mapToDB(exp)) }); } catch(e) {}
 }
+async function deleteExpense(id) {
+  try { await sbFetch(`/expenses?id=eq.${id}`, { method:'DELETE' }); } catch(e) {}
+}
 async function loadUsers() {
   try { const r = await sbFetch('/user_data?select=*'); const d = await r.json(); if (!Array.isArray(d) || !d.length) return null; const out={}; d.forEach(u=>{ out[u.user_id]={ assigned:Number(u.assigned), spent:Number(u.spent), balance:Number(u.balance) }; }); return out; } catch(e) { return null; }
 }
@@ -172,12 +175,17 @@ function FLabel({ children }) {
   return <div style={{ fontSize:12, color:S.tx2, marginBottom:4 }}>{children}</div>;
 }
 
-function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
+function ExpenseForm({ user, onSave, onCancel, toast, geminiKey, editExpense }) {
+  const isEdit = !!editExpense;
   const [file, setFile] = useState(null);
   const [ocr, setOcr] = useState(null);
   const [ocrError, setOcrError] = useState('');
   const [aiFields, setAiFields] = useState([]);
-  const [form, setForm] = useState({ proveedor:'', rut:'', monto:'', fecha:today(), ndoc:'', items:'', categoria:'Insumos', centroCosto:'Administración', comentario:'' });
+  const [form, setForm] = useState(isEdit ? {
+    proveedor: editExpense.proveedor || '', rut: editExpense.rut || '', monto: String(editExpense.monto || ''),
+    fecha: editExpense.fecha || today(), ndoc: editExpense.ndoc || '', items: editExpense.items || '',
+    categoria: editExpense.categoria || 'Insumos', centroCosto: editExpense.centroCosto || 'Administración', comentario: editExpense.comentario || '',
+  } : { proveedor:'', rut:'', monto:'', fecha:today(), ndoc:'', items:'', categoria:'Insumos', centroCosto:'Administración', comentario:'' });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
   const ai = k => aiFields.includes(k);
@@ -207,10 +215,17 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
     if (!form.proveedor.trim()) { toast('Ingresa el proveedor', 'err'); return; }
     if (!form.monto || isNaN(Number(form.monto))) { toast('Monto inválido', 'err'); return; }
     setSaving(true);
-    const expId = genId();
-    const fileUrl = file ? await uploadFile(file, expId, user.id) : null;
-    const exp = { id:expId, userId:user.id, userName:user.name, ...form, monto:Number(form.monto), status:'pending', createdAt:new Date().toISOString(), fileName:file?.name || null, fileUrl, adminComment:'', aiExtracted:aiFields.length > 0 };
-    await saveExpense(exp); toast('Rendición enviada', 'ok'); onSave(exp); setSaving(false);
+    if (isEdit) {
+      const fileUrl = file ? await uploadFile(file, editExpense.id, user.id) : editExpense.fileUrl;
+      const exp = { ...editExpense, ...form, monto:Number(form.monto), fileName:file?.name || editExpense.fileName, fileUrl, aiExtracted:aiFields.length > 0 || editExpense.aiExtracted };
+      await saveExpense(exp); toast('Rendición actualizada', 'ok'); onSave(exp);
+    } else {
+      const expId = genId();
+      const fileUrl = file ? await uploadFile(file, expId, user.id) : null;
+      const exp = { id:expId, userId:user.id, userName:user.name, ...form, monto:Number(form.monto), status:'pending', createdAt:new Date().toISOString(), fileName:file?.name || null, fileUrl, adminComment:'', aiExtracted:aiFields.length > 0 };
+      await saveExpense(exp); toast('Rendición enviada', 'ok'); onSave(exp);
+    }
+    setSaving(false);
   };
 
   const row = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 };
@@ -259,14 +274,16 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
       <div style={{ marginBottom:12 }}><FLabel>Comentario</FLabel><textarea style={css.textarea} value={form.comentario} onChange={e => set('comentario', e.target.value)} placeholder="Contexto adicional..." /></div>
       <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
         <button style={css.btn('secondary')} onClick={onCancel}>Cancelar</button>
-        <button style={{ ...css.btn('primary'), opacity:(saving || ocr === 'loading') ? .5 : 1 }} onClick={handleSubmit} disabled={saving || ocr === 'loading'}>{saving ? 'Guardando...' : 'Enviar rendición'}</button>
+        <button style={{ ...css.btn('primary'), opacity:(saving || ocr === 'loading') ? .5 : 1 }} onClick={handleSubmit} disabled={saving || ocr === 'loading'}>{saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Enviar rendición'}</button>
       </div>
     </div>
   );
 }
 
-function UserView({ user, expenses, userData, onNewExpense, toast, geminiKey }) {
+function UserView({ user, expenses, userData, onNewExpense, onEditExpense, onDeleteExpense, toast, geminiKey }) {
   const [tab, setTab] = useState('list');
+  const [editExp, setEditExp] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const myExp = expenses.filter(e => e.userId === user.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const approved = myExp.filter(e => e.status === 'approved').reduce((s, e) => s + e.monto, 0);
   const pending = myExp.filter(e => e.status === 'pending').reduce((s, e) => s + e.monto, 0);
@@ -290,7 +307,7 @@ function UserView({ user, expenses, userData, onNewExpense, toast, geminiKey }) 
           : <div style={{ overflowX:'auto', borderRadius:12, border:`1px solid ${S.brd}` }}>
               <table style={{ width:'100%', borderCollapse:'collapse', minWidth:560 }}>
                 <thead><tr style={{ background:S.bg2 }}>
-                  {['Fecha','Proveedor','Categoría','Monto','Estado','Obs.'].map(h => <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontSize:11, color:S.tx2, fontWeight:600, textTransform:'uppercase', letterSpacing:'.05em', borderBottom:`1px solid ${S.brd}` }}>{h}</th>)}
+                  {['Fecha','Proveedor','Categoría','Monto','Estado','Obs.',''].map(h => <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontSize:11, color:S.tx2, fontWeight:600, textTransform:'uppercase', letterSpacing:'.05em', borderBottom:`1px solid ${S.brd}` }}>{h}</th>)}
                 </tr></thead>
                 <tbody>{myExp.map(e => (
                   <tr key={e.id} style={{ borderBottom:`1px solid ${S.brd}` }}>
@@ -300,6 +317,12 @@ function UserView({ user, expenses, userData, onNewExpense, toast, geminiKey }) 
                     <td style={{ padding:'10px 12px', fontWeight:600, whiteSpace:'nowrap', fontSize:13 }}>{fmt(e.monto)}</td>
                     <td style={{ padding:'10px 12px' }}><StatusBadge status={e.status} /></td>
                     <td style={{ padding:'10px 12px', fontSize:12, color:S.tx3, maxWidth:140 }}>{e.adminComment || e.comentario || '—'}</td>
+                    <td style={{ padding:'10px 12px', whiteSpace:'nowrap' }}>
+                      {e.status === 'pending' && <div style={{ display:'flex', gap:5 }}>
+                        <button style={{ ...css.btn('xs'), padding:'3px 8px', fontSize:11, borderRadius:7 }} onClick={() => setEditExp(e)}>✏ Editar</button>
+                        <button style={{ ...css.btn('err'), padding:'3px 7px', fontSize:11, borderRadius:7, background:'transparent', border:`1px solid ${S.err}40` }} onClick={() => setDeleteConfirm(e)}>🗑</button>
+                      </div>}
+                    </td>
                   </tr>
                 ))}</tbody>
               </table>
@@ -310,6 +333,19 @@ function UserView({ user, expenses, userData, onNewExpense, toast, geminiKey }) 
         <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>Nueva rendición</div>
         <div style={css.card}><ExpenseForm user={user} onSave={exp => { onNewExpense(exp); setTab('list'); }} onCancel={() => setTab('list')} toast={toast} geminiKey={geminiKey} /></div>
       </div>}
+
+      {editExp && <Modal title="Editar rendición" onClose={() => setEditExp(null)}>
+        <ExpenseForm user={user} editExpense={editExp} onSave={exp => { onEditExpense(exp); setEditExp(null); }} onCancel={() => setEditExp(null)} toast={toast} geminiKey={geminiKey} />
+      </Modal>}
+
+      {deleteConfirm && <Modal title="Eliminar rendición" onClose={() => setDeleteConfirm(null)}>
+        <div style={{ fontSize:13, color:S.tx1, marginBottom:6 }}>¿Eliminar la rendición de <b>{deleteConfirm.proveedor}</b> por <b style={{ color:S.acc2 }}>{fmt(deleteConfirm.monto)}</b>?</div>
+        <div style={{ fontSize:12, color:S.tx3, marginBottom:18 }}>Esta acción no se puede deshacer.</div>
+        <div style={{ display:'flex', gap:8 }}>
+          <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => setDeleteConfirm(null)}>Cancelar</button>
+          <button style={{ ...css.btn('err'), flex:1 }} onClick={() => { onDeleteExpense(deleteConfirm); setDeleteConfirm(null); }}>Eliminar</button>
+        </div>
+      </Modal>}
     </div>
   );
 }
@@ -774,6 +810,8 @@ export default function App() {
 
   const handleNewExpense = async (exp) => setExpenses(p => [exp, ...p]);
   const handleUpdateExpense = async (upd) => { await saveExpense(upd); setExpenses(p => p.map(e => e.id === upd.id ? upd : e)); };
+  const handleEditExpense = async (upd) => { setExpenses(p => p.map(e => e.id === upd.id ? upd : e)); };
+  const handleDeleteExpense = async (exp) => { await deleteExpense(exp.id); setExpenses(p => p.filter(e => e.id !== exp.id)); showToast('Rendición eliminada', 'ok'); };
   const handleUpdateUserData = async (d) => { await saveUsers(d); setUserData(d); };
 
   if (loading) return (
@@ -854,7 +892,7 @@ export default function App() {
       </div>
       {isAdmin
         ? <AdminView expenses={expenses} userData={userData} onUpdateExpense={handleUpdateExpense} onUpdateUserData={handleUpdateUserData} toast={showToast} />
-        : <UserView user={user} expenses={expenses} userData={userData} onNewExpense={handleNewExpense} toast={showToast} geminiKey={geminiKey} />}
+        : <UserView user={user} expenses={expenses} userData={userData} onNewExpense={handleNewExpense} onEditExpense={handleEditExpense} onDeleteExpense={handleDeleteExpense} toast={showToast} geminiKey={geminiKey} />}
       {toast && <Toast key={toast.key} msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
     </div>
   );
