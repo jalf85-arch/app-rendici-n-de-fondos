@@ -728,7 +728,23 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [geminiKey, setGeminiKey] = useState('');
   const showToast = (msg, type = 'ok') => setToast({ msg, type, key: Date.now() });
-  const saveGeminiKey = (val) => { setGeminiKey(val); saveGeminiKeyStorage(val); };
+  const [keySaved, setKeySaved] = useState(false);
+  const [keyTesting, setKeyTesting] = useState(false);
+  const saveGeminiKey = (val) => { setGeminiKey(val); setKeySaved(false); };
+  const handleSaveAndTestKey = async () => {
+    if (!geminiKey.trim()) return;
+    setKeyTesting(true);
+    await saveGeminiKeyStorage(geminiKey.trim());
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey.trim()}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: 'Responde solo: OK' }] }], generationConfig: { maxOutputTokens: 5 } })
+      });
+      if (res.ok) { setKeySaved(true); showToast('Clave guardada y verificada ✓', 'ok'); }
+      else { const e = await res.json(); showToast('Error: ' + (e.error?.message || `HTTP ${res.status}`), 'err'); }
+    } catch (e) { showToast('Error de red: ' + e.message, 'err'); }
+    setKeyTesting(false);
+  };
 
   useEffect(() => {
     (async () => {
@@ -780,14 +796,23 @@ export default function App() {
         </button>
         <div style={{ marginTop:16, paddingTop:14, borderTop:`1px solid ${S.brd}` }}>
           <div style={{ fontSize:11, color:S.tx3, marginBottom:6 }}>⚙ OCR automático — Gemini API key <span style={{ color:S.acc2 }}>(opcional)</span></div>
-          <input
-            style={{ ...css.input, fontSize:12 }}
-            type="password"
-            placeholder="Pegar API key de Google AI Studio..."
-            value={geminiKey}
-            onChange={e => saveGeminiKey(e.target.value)}
-          />
-          <div style={{ fontSize:10, color:S.tx3, marginTop:5 }}>Sin key el formulario funciona manual. Se guarda en este navegador.</div>
+          <div style={{ display:'flex', gap:6 }}>
+            <input
+              style={{ ...css.input, fontSize:12, flex:1 }}
+              type="password"
+              placeholder="Pegar API key de Google AI Studio..."
+              value={geminiKey}
+              onChange={e => saveGeminiKey(e.target.value)}
+            />
+            <button onClick={handleSaveAndTestKey} disabled={!geminiKey.trim() || keyTesting}
+              style={{ ...css.btn('primary'), padding:'0 12px', fontSize:12, whiteSpace:'nowrap', opacity: (!geminiKey.trim() || keyTesting) ? 0.5 : 1 }}>
+              {keyTesting ? '...' : keySaved ? '✓' : 'Guardar'}
+            </button>
+          </div>
+          {geminiKey && <div style={{ fontSize:10, color:S.tx3, marginTop:4 }}>
+            Clave activa: <span style={{ color:S.tx2, fontFamily:'monospace' }}>{geminiKey.slice(0,8)}...{geminiKey.slice(-4)}</span>
+          </div>}
+          <div style={{ fontSize:10, color:S.tx3, marginTop:4 }}>Sin key el formulario funciona manual. Se guarda en este navegador.</div>
         </div>
       </div>
     </div>
