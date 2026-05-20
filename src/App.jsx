@@ -66,13 +66,13 @@ async function extractDocumentData(file, apiKey) {
               { inline_data: { mime_type: mimeType, data: base64 } },
               { text: 'Extrae datos de esta boleta/factura chilena. Responde SOLO JSON válido:\n{"proveedor":"nombre","rut":"XX.XXX.XXX-X","monto":numero,"fecha":"YYYY-MM-DD","ndoc":"folio","items":"descripción"}\nSin explicaciones. Solo el JSON.' }
             ]}],
-            generationConfig: { maxOutputTokens: 500 }
+            generationConfig: { maxOutputTokens: 1024, responseMimeType: 'application/json' }
           })
         });
         if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'API error'); }
         const data = await res.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-        resolve(JSON.parse(text.replace(/```json|```/g, '').trim()));
+        try { resolve(JSON.parse(text.replace(/```json|```/g, '').trim())); } catch { resolve({}); }
       } catch (err) { reject(err); }
     };
     reader.onerror = () => reject(new Error('Error leyendo archivo'));
