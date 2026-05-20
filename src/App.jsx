@@ -5,11 +5,12 @@ const USERS = [
   { id: 'jorge', name: 'Jorge Laso', role: 'Gerente Adm.', color: '#7c6ff7', initials: 'JL' },
   { id: 'luisa', name: 'Luisa', role: 'Enc. Compras', color: '#38bdf8', initials: 'LU' },
   { id: 'hector', name: 'Héctor Vergara', role: 'Bodega', color: '#22c55e', initials: 'HV' },
-  { id: 'diego', name: 'Diego Durán', role: 'Salas', color: '#f59e0b', initials: 'DD' },
+  { id: 'diego', name: 'Diego Durán', role: 'Salas', color: '#fb923c', initials: 'DD' },
+  { id: 'pedro', name: 'Pedro', role: 'Staff', color: '#f43f5e', initials: 'PE' },
 ];
-const ADMIN = { id: 'alan', name: 'Alan Estévez', role: 'Finanzas', color: '#f59e0b', initials: 'AE' };
-const CATS = ['Insumos', 'Transporte', 'Servicios', 'Equipamiento', 'Otros'];
-const CAT_COLORS = ['#7c6ff7', '#38bdf8', '#22c55e', '#f59e0b', '#ef4444'];
+const ADMIN = { id: 'alan', name: 'Alan Estévez', role: 'Finanzas', color: '#e8b84b', initials: 'AE' };
+const CATS = ['Movilidad','Fletes y despachos','Insumo Sala','Insumo Cocina','Reparaciones','Costo','Gastos TK','Gastos ATB','Equipamiento','Gastos de Personal','Otros'];
+const CAT_COLORS = ['#e8b84b','#38bdf8','#22c55e','#f43f5e','#a855f7','#fb923c','#06b6d4','#84cc16','#ec4899','#6366f1','#94a3b8'];
 const COSTOS = ['Cocina', 'Sala', 'Bar', 'Eventos', 'Administración', 'Bodega'];
 const STATUS_LABELS = { pending: 'Pendiente', approved: 'Aprobada', rejected: 'Rechazada' };
 
@@ -26,31 +27,14 @@ const sbFetch = (path, opts = {}) => fetch(`${SB_URL}/rest/v1${path}`, {
   headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation', ...(opts.headers || {}) }
 });
 
-const mapToDB = e => ({ id:e.id, user_id:e.userId, user_name:e.userName, proveedor:e.proveedor, rut:e.rut||null, monto:e.monto, fecha:e.fecha, ndoc:e.ndoc||null, items:e.items||null, categoria:e.categoria, centro_costo:e.centroCosto||null, comentario:e.comentario||null, status:e.status, admin_comment:e.adminComment||null, ai_extracted:e.aiExtracted||false, file_name:e.fileName||null, file_url:e.fileUrl||null, created_at:e.createdAt });
-const mapFromDB = r => ({ id:r.id, userId:r.user_id, userName:r.user_name, proveedor:r.proveedor, rut:r.rut, monto:Number(r.monto), fecha:r.fecha, ndoc:r.ndoc, items:r.items, categoria:r.categoria, centroCosto:r.centro_costo, comentario:r.comentario, status:r.status, adminComment:r.admin_comment, aiExtracted:r.ai_extracted, fileName:r.file_name, fileUrl:r.file_url, createdAt:r.created_at });
-
-async function uploadFile(file, expenseId, userId) {
-  try {
-    const ext = file.name.split('.').pop();
-    const path = `${userId}/${expenseId}.${ext}`;
-    const res = await fetch(`${SB_URL}/storage/v1/object/comprobantes/${path}`, {
-      method: 'POST',
-      headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`, 'Content-Type': file.type, 'x-upsert': 'true' },
-      body: file
-    });
-    if (!res.ok) return null;
-    return `${SB_URL}/storage/v1/object/public/comprobantes/${path}`;
-  } catch(e) { return null; }
-}
+const mapToDB = e => ({ id:e.id, user_id:e.userId, user_name:e.userName, proveedor:e.proveedor, rut:e.rut||null, monto:e.monto, fecha:e.fecha, ndoc:e.ndoc||null, items:e.items||null, categoria:e.categoria, centro_costo:e.centroCosto||null, comentario:e.comentario||null, status:e.status, admin_comment:e.adminComment||null, ai_extracted:e.aiExtracted||false, file_name:e.fileName||null, created_at:e.createdAt });
+const mapFromDB = r => ({ id:r.id, userId:r.user_id, userName:r.user_name, proveedor:r.proveedor, rut:r.rut, monto:Number(r.monto), fecha:r.fecha, ndoc:r.ndoc, items:r.items, categoria:r.categoria, centroCosto:r.centro_costo, comentario:r.comentario, status:r.status, adminComment:r.admin_comment, aiExtracted:r.ai_extracted, fileName:r.file_name, createdAt:r.created_at });
 
 async function loadAll() {
   try { const r = await sbFetch('/expenses?select=*&order=created_at.desc'); const d = await r.json(); return Array.isArray(d) ? d.map(mapFromDB) : []; } catch(e) { return []; }
 }
 async function saveExpense(exp) {
   try { await sbFetch('/expenses', { method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body:JSON.stringify(mapToDB(exp)) }); } catch(e) {}
-}
-async function deleteExpense(id) {
-  try { await sbFetch(`/expenses?id=eq.${id}`, { method:'DELETE' }); } catch(e) {}
 }
 async function loadUsers() {
   try { const r = await sbFetch('/user_data?select=*'); const d = await r.json(); if (!Array.isArray(d) || !d.length) return null; const out={}; d.forEach(u=>{ out[u.user_id]={ assigned:Number(u.assigned), spent:Number(u.spent), balance:Number(u.balance) }; }); return out; } catch(e) { return null; }
@@ -74,30 +58,22 @@ async function extractDocumentData(file, apiKey) {
       try {
         const base64 = e.target.result.split(',')[1];
         const mimeType = file.type || 'image/jpeg';
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [
               { inline_data: { mime_type: mimeType, data: base64 } },
-              { text: 'Extrae datos de esta boleta/factura chilena. Responde SOLO JSON válido sin ningún texto extra:\n{"proveedor":"nombre empresa","rut":"XX.XXX.XXX-X","monto":12345,"fecha":"YYYY-MM-DD","ndoc":"folio","items":"descripción de items"}\nIMPORTANTE: Solo el objeto JSON, sin markdown, sin explicaciones.' }
+              { text: 'Extrae datos de esta boleta/factura chilena. Responde SOLO JSON válido:\n{"proveedor":"nombre","rut":"XX.XXX.XXX-X","monto":numero,"fecha":"YYYY-MM-DD","ndoc":"folio","items":"descripción"}\nSin explicaciones. Solo el JSON.' }
             ]}],
-            generationConfig: { maxOutputTokens: 500, temperature: 0, thinkingConfig: { thinkingBudget: 0 } }
+            generationConfig: { maxOutputTokens: 500 }
           })
         });
-        if (!res.ok) {
-          const err = await res.json();
-          const msg = err.error?.message || `HTTP ${res.status}`;
-          console.error('[Gemini OCR] API error:', msg, err);
-          throw new Error(msg);
-        }
+        if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'API error'); }
         const data = await res.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-        console.log('[Gemini OCR] raw response:', text);
-        const match = text.match(/\{[\s\S]*\}/);
-        if (!match) throw new Error('Respuesta no contiene JSON');
-        resolve(JSON.parse(match[0]));
-      } catch (err) { console.error('[Gemini OCR] error:', err); reject(err); }
+        resolve(JSON.parse(text.replace(/```json|```/g, '').trim()));
+      } catch (err) { reject(err); }
     };
     reader.onerror = () => reject(new Error('Error leyendo archivo'));
     reader.readAsDataURL(file);
@@ -105,18 +81,18 @@ async function extractDocumentData(file, apiKey) {
 }
 
 const S = {
-  bg0:'#0d0d14',bg1:'#13131f',bg2:'#1a1a2b',bg3:'#22223a',
-  acc:'#7c6ff7',acc2:'#a99df5',accD:'#5b54c4',
-  brd:'#2a2a40',brd2:'#38385a',
-  tx1:'#e2e2f0',tx2:'#9090b8',tx3:'#5a5a7a',
+  bg0:'#050505',bg1:'#0a0a0a',bg2:'#111111',bg3:'#181818',
+  acc:'#e8b84b',acc2:'#f5d070',accD:'#b8881e',
+  brd:'#e8b84b',brd2:'#f5d070',
+  tx1:'#f0f0f0',tx2:'#999999',tx3:'#555555',
   ok:'#4ade80',warn:'#fbbf24',err:'#f87171',inf:'#38bdf8',
 };
 const css = {
   wrap: { minHeight:'100vh', background:S.bg0, color:S.tx1, fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:14 },
   card: { background:S.bg1, border:`1px solid ${S.brd}`, borderRadius:14, padding:'1.1rem' },
-  input: { width:'100%', background:S.bg2, border:`1px solid ${S.brd}`, borderRadius:9, padding:'.55rem .8rem', color:S.tx1, fontSize:13, outline:'none' },
-  select: { width:'100%', background:S.bg2, border:`1px solid ${S.brd}`, borderRadius:9, padding:'.55rem .8rem', color:S.tx1, fontSize:13, outline:'none' },
-  textarea: { width:'100%', background:S.bg2, border:`1px solid ${S.brd}`, borderRadius:9, padding:'.55rem .8rem', color:S.tx1, fontSize:13, outline:'none', resize:'vertical', minHeight:68 },
+  input: { width:'100%', background:S.bg3, border:`1px solid ${S.brd}`, borderRadius:9, padding:'.55rem .8rem', color:S.tx1, fontSize:13, outline:'none' },
+  select: { width:'100%', background:S.bg3, border:`1px solid ${S.brd}`, borderRadius:9, padding:'.55rem .8rem', color:S.tx1, fontSize:13, outline:'none' },
+  textarea: { width:'100%', background:S.bg3, border:`1px solid ${S.brd}`, borderRadius:9, padding:'.55rem .8rem', color:S.tx1, fontSize:13, outline:'none', resize:'vertical', minHeight:68 },
   btn: (v='primary') => {
     const variants = {
       primary: { background:S.acc, color:'#fff', border:'none' },
@@ -133,6 +109,14 @@ const css = {
     return { display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:20, background:d.bg, color:d.color, border:d.border, whiteSpace:'nowrap' };
   },
 };
+
+function BoragonLogo({ size = 18 }) {
+  return (
+    <span style={{ fontFamily:"'Helvetica Neue','Arial','Segoe UI',sans-serif", fontWeight:500, fontSize:size, color:'#ffffff', letterSpacing:'0.28em', textTransform:'uppercase' }}>
+      BORAGÓ
+    </span>
+  );
+}
 
 function Toast({ msg, type, onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 3200); return () => clearTimeout(t); }, []);
@@ -175,28 +159,22 @@ function FLabel({ children }) {
   return <div style={{ fontSize:12, color:S.tx2, marginBottom:4 }}>{children}</div>;
 }
 
-function ExpenseForm({ user, onSave, onCancel, toast, geminiKey, editExpense }) {
-  const isEdit = !!editExpense;
+function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
   const [file, setFile] = useState(null);
   const [ocr, setOcr] = useState(null);
-  const [ocrError, setOcrError] = useState('');
   const [aiFields, setAiFields] = useState([]);
-  const [form, setForm] = useState(isEdit ? {
-    proveedor: editExpense.proveedor || '', rut: editExpense.rut || '', monto: String(editExpense.monto || ''),
-    fecha: editExpense.fecha || today(), ndoc: editExpense.ndoc || '', items: editExpense.items || '',
-    categoria: editExpense.categoria || 'Insumos', centroCosto: editExpense.centroCosto || 'Administración', comentario: editExpense.comentario || '',
-  } : { proveedor:'', rut:'', monto:'', fecha:today(), ndoc:'', items:'', categoria:'Insumos', centroCosto:'Administración', comentario:'' });
+  const [form, setForm] = useState({ proveedor:'', rut:'', monto:'', fecha:today(), ndoc:'', items:'', categoria:'Insumos', centroCosto:'Administración', comentario:'' });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
   const ai = k => aiFields.includes(k);
-  const aiFilled = { ...css.input, borderColor:'#7c6ff760', background:'#1a1535' };
+  const aiFilled = { ...css.input, borderColor:S.acc2 + '90', background:'#1a1000' };
 
   const handleFile = async (e) => {
     const f = e.target.files?.[0]; if (!f) return;
     if (f.size > 8 * 1024 * 1024) { toast('Archivo muy grande (máx 8MB)', 'err'); return; }
     setFile(f);
     if (!geminiKey) { setOcr(null); toast('Sin API key — completa los campos manualmente', 'inf'); return; }
-    setOcr('loading'); setAiFields([]); setOcrError('');
+    setOcr('loading'); setAiFields([]);
     try {
       const data = await extractDocumentData(f, geminiKey);
       const filled = []; const nf = { ...form };
@@ -208,24 +186,15 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey, editExpense }) 
       if (data.items) { nf.items = data.items; filled.push('items'); }
       setForm(nf); setAiFields(filled); setOcr('done');
       toast(`✨ Gemini extrajo ${filled.length} campos`, 'inf');
-    } catch (err) { setOcr('error'); setOcrError(err.message || 'Error desconocido'); }
+    } catch (err) { setOcr('error'); toast('No se pudo leer. Completa manualmente.', 'err'); }
   };
 
   const handleSubmit = async () => {
     if (!form.proveedor.trim()) { toast('Ingresa el proveedor', 'err'); return; }
     if (!form.monto || isNaN(Number(form.monto))) { toast('Monto inválido', 'err'); return; }
     setSaving(true);
-    if (isEdit) {
-      const fileUrl = file ? await uploadFile(file, editExpense.id, user.id) : editExpense.fileUrl;
-      const exp = { ...editExpense, ...form, monto:Number(form.monto), fileName:file?.name || editExpense.fileName, fileUrl, aiExtracted:aiFields.length > 0 || editExpense.aiExtracted };
-      await saveExpense(exp); toast('Rendición actualizada', 'ok'); onSave(exp);
-    } else {
-      const expId = genId();
-      const fileUrl = file ? await uploadFile(file, expId, user.id) : null;
-      const exp = { id:expId, userId:user.id, userName:user.name, ...form, monto:Number(form.monto), status:'pending', createdAt:new Date().toISOString(), fileName:file?.name || null, fileUrl, adminComment:'', aiExtracted:aiFields.length > 0 };
-      await saveExpense(exp); toast('Rendición enviada', 'ok'); onSave(exp);
-    }
-    setSaving(false);
+    const exp = { id:genId(), userId:user.id, userName:user.name, ...form, monto:Number(form.monto), status:'pending', createdAt:new Date().toISOString(), fileName:file?.name || null, adminComment:'', aiExtracted:aiFields.length > 0 };
+    await saveExpense(exp); toast('Rendición enviada', 'ok'); onSave(exp); setSaving(false);
   };
 
   const row = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 };
@@ -233,9 +202,9 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey, editExpense }) 
   return (
     <div>
       <div style={{ marginBottom:12 }}>
-        <FLabel>Documento <span style={{ fontSize:11, fontWeight:700, padding:'2px 7px', borderRadius:20, background:'#1a1535', color:S.acc2, border:`1px solid ${S.acc}`, marginLeft:6 }}>✨ Gemini lee automático</span></FLabel>
-        <div style={{ position:'relative', border:`2px dashed ${S.brd2}`, borderRadius:12, padding:'1.5rem', textAlign:'center', cursor:'pointer', overflow:'hidden' }}>
-          <input type="file" accept="image/*,.pdf" onChange={handleFile} disabled={ocr === 'loading'} style={{ position:'absolute', inset:0, opacity:0, cursor:'pointer' }} />
+        <FLabel>Documento <span style={{ fontSize:11, fontWeight:700, padding:'2px 7px', borderRadius:20, background:'#1a1200', color:S.acc2, border:`1px solid ${S.acc}`, marginLeft:6 }}>✨ Gemini lee automático</span></FLabel>
+        <div style={{ position:'relative', border:`2px dashed ${S.brd2}`, borderRadius:12, padding:'1.5rem', textAlign:'center', cursor:'pointer' }}>
+          <input type="file" accept="image/*,.pdf" onChange={handleFile} disabled={ocr === 'loading'} style={{ position:'absolute', inset:0, opacity:0, cursor:'pointer', width:'100%', height:'100%' }} />
           {!file
             ? <><div style={{ fontSize:28, marginBottom:4 }}>📎</div><div style={{ fontSize:13, color:S.tx2 }}>Foto o PDF de boleta / factura</div><div style={{ fontSize:11, color:S.tx3, marginTop:3 }}>JPG · PNG · PDF — máx 8 MB</div></>
             : <div style={{ display:'flex', alignItems:'center', gap:10, justifyContent:'center' }}>
@@ -243,16 +212,16 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey, editExpense }) 
                 <div style={{ textAlign:'left' }}><div style={{ fontSize:13, fontWeight:500 }}>{file.name}</div><div style={{ fontSize:11, color:S.tx3 }}>{(file.size / 1024).toFixed(0)} KB</div></div>
               </div>}
         </div>
-        {ocr === 'loading' && <div style={{ background:'#0f0f1e', border:`1px solid ${S.acc}`, borderRadius:10, padding:'12px', textAlign:'center', marginTop:8 }}>
+        {ocr === 'loading' && <div style={{ background:S.bg1, border:`1px solid ${S.brd}`, borderRadius:10, padding:'12px', textAlign:'center', marginTop:8 }}>
           <div style={{ width:24, height:24, border:`3px solid ${S.brd2}`, borderTopColor:S.acc, borderRadius:'50%', animation:'spin .7s linear infinite', margin:'0 auto 6px' }} />
           <div style={{ fontSize:13, color:S.acc2 }}>Gemini está leyendo el documento...</div>
           <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
         </div>}
-        {ocr === 'done' && aiFields.length > 0 && <div style={{ background:'#0f0f1e', border:`1px solid ${S.acc}`, borderRadius:10, padding:'10px 14px', marginTop:8 }}>
+        {ocr === 'done' && aiFields.length > 0 && <div style={{ background:S.bg1, border:`1px solid ${S.brd}`, borderRadius:10, padding:'10px 14px', marginTop:8 }}>
           <div style={{ fontSize:12, color:S.acc2, marginBottom:3 }}>✨ {aiFields.length} campos completados automáticamente</div>
           <div style={{ fontSize:11, color:S.tx3 }}>Los campos en morado fueron extraídos. Revisa antes de enviar.</div>
         </div>}
-        {ocr === 'error' && <div style={{ marginTop:8, padding:'8px 12px', background:'#1c0505', border:'1px solid #7f1d1d40', borderRadius:8, fontSize:12, color:S.err }}>⚠️ Error OCR: {ocrError || 'desconocido'}<br/><span style={{color:S.tx3,fontSize:11}}>Completa los campos manualmente.</span></div>}
+        {ocr === 'error' && <div style={{ marginTop:8, padding:'8px 12px', background:'#1c0505', border:'1px solid #7f1d1d40', borderRadius:8, fontSize:12, color:S.err }}>⚠️ No se pudo leer. Completa manualmente.</div>}
       </div>
 
       <div style={row}>
@@ -274,16 +243,14 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey, editExpense }) 
       <div style={{ marginBottom:12 }}><FLabel>Comentario</FLabel><textarea style={css.textarea} value={form.comentario} onChange={e => set('comentario', e.target.value)} placeholder="Contexto adicional..." /></div>
       <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
         <button style={css.btn('secondary')} onClick={onCancel}>Cancelar</button>
-        <button style={{ ...css.btn('primary'), opacity:(saving || ocr === 'loading') ? .5 : 1 }} onClick={handleSubmit} disabled={saving || ocr === 'loading'}>{saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Enviar rendición'}</button>
+        <button style={{ ...css.btn('primary'), opacity:(saving || ocr === 'loading') ? .5 : 1 }} onClick={handleSubmit} disabled={saving || ocr === 'loading'}>{saving ? 'Guardando...' : 'Enviar rendición'}</button>
       </div>
     </div>
   );
 }
 
-function UserView({ user, expenses, userData, onNewExpense, onEditExpense, onDeleteExpense, toast, geminiKey }) {
+function UserView({ user, expenses, userData, onNewExpense, toast, geminiKey }) {
   const [tab, setTab] = useState('list');
-  const [editExp, setEditExp] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const myExp = expenses.filter(e => e.userId === user.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const approved = myExp.filter(e => e.status === 'approved').reduce((s, e) => s + e.monto, 0);
   const pending = myExp.filter(e => e.status === 'pending').reduce((s, e) => s + e.monto, 0);
@@ -298,7 +265,7 @@ function UserView({ user, expenses, userData, onNewExpense, onEditExpense, onDel
       </div>
 
       {tab === 'list' && <div style={{ padding:16, maxWidth:1100, margin:'0 auto' }}>
-        <div style={{ background:'linear-gradient(135deg,#1a1535,#12122a)', border:`1px solid ${S.acc}`, borderRadius:14, padding:'16px 20px', marginBottom:14, display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
+        <div style={{ background:S.bg2, border:`1px solid ${S.brd}`, borderRadius:14, padding:'16px 20px', marginBottom:14, display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
           <div><div style={{ fontSize:12, color:S.tx2 }}>Fondo asignado</div><div style={{ fontSize:22, fontWeight:700, color:S.acc2 }}>{fmt(ud.assigned)}</div><div style={{ fontSize:12, color:S.tx2 }}>Saldo disponible: <b style={{ color:S.ok }}>{fmt(ud.assigned - approved - pending)}</b></div></div>
           <div style={{ textAlign:'right' }}><div style={{ fontSize:12, color:S.tx2 }}>Aprobado</div><div style={{ fontSize:16, fontWeight:700, color:S.ok }}>{fmt(approved)}</div><div style={{ fontSize:12, color:S.tx2 }}>En revisión: <b style={{ color:S.inf }}>{fmt(pending)}</b></div></div>
         </div>
@@ -307,22 +274,16 @@ function UserView({ user, expenses, userData, onNewExpense, onEditExpense, onDel
           : <div style={{ overflowX:'auto', borderRadius:12, border:`1px solid ${S.brd}` }}>
               <table style={{ width:'100%', borderCollapse:'collapse', minWidth:560 }}>
                 <thead><tr style={{ background:S.bg2 }}>
-                  {['Fecha','Proveedor','Categoría','Monto','Estado','Obs.',''].map(h => <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontSize:11, color:S.tx2, fontWeight:600, textTransform:'uppercase', letterSpacing:'.05em', borderBottom:`1px solid ${S.brd}` }}>{h}</th>)}
+                  {['Fecha','Proveedor','Categoría','Monto','Estado','Obs.'].map(h => <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontSize:11, color:S.tx2, fontWeight:600, textTransform:'uppercase', letterSpacing:'.05em', borderBottom:`1px solid ${S.brd}` }}>{h}</th>)}
                 </tr></thead>
                 <tbody>{myExp.map(e => (
                   <tr key={e.id} style={{ borderBottom:`1px solid ${S.brd}` }}>
                     <td style={{ padding:'10px 12px', fontSize:12, color:S.tx2, whiteSpace:'nowrap' }}>{e.fecha}</td>
-                    <td style={{ padding:'10px 12px', fontSize:13 }}>{e.proveedor}{e.aiExtracted && <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:20, background:'#1a1535', color:S.acc2, border:`1px solid ${S.acc}`, marginLeft:4 }}>✨IA</span>}<br /><span style={{ fontSize:10, color:S.tx3 }}>{e.ndoc ? '#' + e.ndoc : ''}</span></td>
+                    <td style={{ padding:'10px 12px', fontSize:13 }}>{e.proveedor}{e.aiExtracted && <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:20, background:'#1a1200', color:S.acc2, border:`1px solid ${S.acc}`, marginLeft:4 }}>✨IA</span>}<br /><span style={{ fontSize:10, color:S.tx3 }}>{e.ndoc ? '#' + e.ndoc : ''}</span></td>
                     <td style={{ padding:'10px 12px' }}><span style={{ fontSize:11, background:S.bg2, padding:'2px 7px', borderRadius:5, color:S.tx2 }}>{e.categoria}</span></td>
                     <td style={{ padding:'10px 12px', fontWeight:600, whiteSpace:'nowrap', fontSize:13 }}>{fmt(e.monto)}</td>
                     <td style={{ padding:'10px 12px' }}><StatusBadge status={e.status} /></td>
                     <td style={{ padding:'10px 12px', fontSize:12, color:S.tx3, maxWidth:140 }}>{e.adminComment || e.comentario || '—'}</td>
-                    <td style={{ padding:'10px 12px', whiteSpace:'nowrap' }}>
-                      {e.status === 'pending' && <div style={{ display:'flex', gap:5 }}>
-                        <button style={{ ...css.btn('xs'), padding:'3px 8px', fontSize:11, borderRadius:7 }} onClick={() => setEditExp(e)}>✏ Editar</button>
-                        <button style={{ ...css.btn('err'), padding:'3px 7px', fontSize:11, borderRadius:7, background:'transparent', border:`1px solid ${S.err}40` }} onClick={() => setDeleteConfirm(e)}>🗑</button>
-                      </div>}
-                    </td>
                   </tr>
                 ))}</tbody>
               </table>
@@ -333,19 +294,6 @@ function UserView({ user, expenses, userData, onNewExpense, onEditExpense, onDel
         <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>Nueva rendición</div>
         <div style={css.card}><ExpenseForm user={user} onSave={exp => { onNewExpense(exp); setTab('list'); }} onCancel={() => setTab('list')} toast={toast} geminiKey={geminiKey} /></div>
       </div>}
-
-      {editExp && <Modal title="Editar rendición" onClose={() => setEditExp(null)}>
-        <ExpenseForm user={user} editExpense={editExp} onSave={exp => { onEditExpense(exp); setEditExp(null); }} onCancel={() => setEditExp(null)} toast={toast} geminiKey={geminiKey} />
-      </Modal>}
-
-      {deleteConfirm && <Modal title="Eliminar rendición" onClose={() => setDeleteConfirm(null)}>
-        <div style={{ fontSize:13, color:S.tx1, marginBottom:6 }}>¿Eliminar la rendición de <b>{deleteConfirm.proveedor}</b> por <b style={{ color:S.acc2 }}>{fmt(deleteConfirm.monto)}</b>?</div>
-        <div style={{ fontSize:12, color:S.tx3, marginBottom:18 }}>Esta acción no se puede deshacer.</div>
-        <div style={{ display:'flex', gap:8 }}>
-          <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => setDeleteConfirm(null)}>Cancelar</button>
-          <button style={{ ...css.btn('err'), flex:1 }} onClick={() => { onDeleteExpense(deleteConfirm); setDeleteConfirm(null); }}>Eliminar</button>
-        </div>
-      </Modal>}
     </div>
   );
 }
@@ -405,7 +353,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
   const totalApproved = approvedExp.reduce((s, e) => s + e.monto, 0);
   const totalPending = expenses.filter(e => e.status === 'pending').reduce((s, e) => s + e.monto, 0);
   const totalFunds = Object.values(userData).reduce((s, u) => s + (u.assigned || 0), 0);
-  const TT = { contentStyle: { background: '#1a1a2b', border: '1px solid #38385a', borderRadius: 8, color: S.tx1, fontSize: 12 }, formatter: v => fmt(v) };
+  const TT = { contentStyle: { background: S.bg2, border: `1px solid ${S.brd}`, borderRadius: 8, color: S.tx1, fontSize: 12 }, formatter: v => fmt(v) };
 
   const filtered = expenses.filter(e => {
     if (filters.user && e.userId !== filters.user) return false;
@@ -593,14 +541,14 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
           </div>
           <div style={css.card}>
             <div style={{ fontSize:11, color:S.tx2, marginBottom:8, textTransform:'uppercase', letterSpacing:'.06em', fontWeight:600 }}>Gasto este mes por usuario</div>
-            <ResponsiveContainer width="100%" height={205}><BarChart data={monthUserData} margin={{ top:5, right:5, left:0, bottom:5 }}><CartesianGrid strokeDasharray="3 3" stroke="#2a2a40" /><XAxis dataKey="name" tick={{ fill:S.tx2, fontSize:11 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill:S.tx2, fontSize:11 }} axisLine={false} tickLine={false} tickFormatter={v => '$' + Math.round(v / 1000) + 'k'} /><Tooltip {...TT} /><Bar dataKey="value" radius={[5,5,0,0]}>{monthUserData.map((d, i) => <Cell key={i} fill={d.color} />)}</Bar></BarChart></ResponsiveContainer>
+            <ResponsiveContainer width="100%" height={205}><BarChart data={monthUserData} margin={{ top:5, right:5, left:0, bottom:5 }}><CartesianGrid strokeDasharray="3 3" stroke="#3a2e00" /><XAxis dataKey="name" tick={{ fill:S.tx2, fontSize:11 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill:S.tx2, fontSize:11 }} axisLine={false} tickLine={false} tickFormatter={v => '$' + Math.round(v / 1000) + 'k'} /><Tooltip {...TT} /><Bar dataKey="value" radius={[5,5,0,0]}>{monthUserData.map((d, i) => <Cell key={i} fill={d.color} />)}</Bar></BarChart></ResponsiveContainer>
           </div>
         </div>
         <div style={css.card}>
           <div style={{ fontSize:11, color:S.tx2, marginBottom:8, textTransform:'uppercase', letterSpacing:'.06em', fontWeight:600 }}>Evolución mensual — gasto aprobado</div>
           {monthlyTrend().length === 0
             ? <div style={{ textAlign:'center', padding:'2rem', color:S.tx3 }}><div style={{ fontSize:28 }}>📈</div><div style={{ fontSize:13, marginTop:6 }}>Sin datos aún</div></div>
-            : <ResponsiveContainer width="100%" height={175}><LineChart data={monthlyTrend()} margin={{ top:5, right:10, left:0, bottom:5 }}><CartesianGrid strokeDasharray="3 3" stroke="#2a2a40" /><XAxis dataKey="mes" tick={{ fill:S.tx2, fontSize:11 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill:S.tx2, fontSize:11 }} axisLine={false} tickLine={false} tickFormatter={v => '$' + Math.round(v / 1000) + 'k'} /><Tooltip {...TT} /><Line type="monotone" dataKey="total" stroke={S.acc} strokeWidth={2.5} dot={{ fill:S.acc, r:4 }} activeDot={{ r:6 }} /></LineChart></ResponsiveContainer>}
+            : <ResponsiveContainer width="100%" height={175}><LineChart data={monthlyTrend()} margin={{ top:5, right:10, left:0, bottom:5 }}><CartesianGrid strokeDasharray="3 3" stroke="#3a2e00" /><XAxis dataKey="mes" tick={{ fill:S.tx2, fontSize:11 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill:S.tx2, fontSize:11 }} axisLine={false} tickLine={false} tickFormatter={v => '$' + Math.round(v / 1000) + 'k'} /><Tooltip {...TT} /><Line type="monotone" dataKey="total" stroke={S.acc} strokeWidth={2.5} dot={{ fill:S.acc, r:4 }} activeDot={{ r:6 }} /></LineChart></ResponsiveContainer>}
         </div>
       </div>}
 
@@ -624,20 +572,19 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
                       <tr key={e.id}>
                         <td style={tdStyle}><span style={{ fontSize:12, color:S.tx2, whiteSpace:'nowrap' }}>{e.fecha}</span></td>
                         <td style={tdStyle}><div style={{ display:'flex', alignItems:'center', gap:6 }}><div style={{ width:26, height:26, borderRadius:'50%', background:u.color+'28', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, color:u.color }}>{u.initials}</div><span style={{ fontSize:13 }}>{u.name.split(' ')[0]}</span></div></td>
-                        <td style={tdStyle}><span style={{ fontWeight:500 }}>{e.proveedor}</span>{e.aiExtracted && <span style={{ fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:20, background:'#1a1535', color:S.acc2, border:`1px solid ${S.acc}`, marginLeft:4 }}>✨IA</span>}</td>
+                        <td style={tdStyle}><span style={{ fontWeight:500 }}>{e.proveedor}</span>{e.aiExtracted && <span style={{ fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:20, background:'#1a1200', color:S.acc2, border:`1px solid ${S.acc}`, marginLeft:4 }}>✨IA</span>}</td>
                         <td style={tdStyle}><span style={{ fontSize:11, background:S.bg2, padding:'2px 7px', borderRadius:5, color:S.tx2 }}>{e.categoria}</span></td>
                         <td style={{ ...tdStyle, fontWeight:700, color:S.acc2, whiteSpace:'nowrap' }}>{fmt(e.monto)}</td>
                         <td style={tdStyle}>
                           <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
                             <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => setDetailExp(e)}>Ver</button>
-                            {e.fileUrl && <a href={e.fileUrl} target="_blank" rel="noreferrer" style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7, textDecoration:'none', color:S.acc2 }}>📎</a>}
                             <button style={{ ...css.btn('ok'), padding:'5px 10px', fontSize:12 }} onClick={() => { setInlineAction({ exp:e, type:'approve' }); setInlineComment(''); }}>✓ Aprobar</button>
                             <button style={{ ...css.btn('err'), padding:'5px 10px', fontSize:12 }} onClick={() => { setInlineAction({ exp:e, type:'reject' }); setInlineComment(''); }}>✕ Rechazar</button>
                           </div>
                         </td>
                       </tr>,
                       isOpen && <tr key={e.id + '_inline'}>
-                        <td colSpan={6} style={{ padding:0, background:'#09090f', borderTop:`1px solid ${S.brd}` }}>
+                        <td colSpan={6} style={{ padding:0, background:S.bg0, borderTop:`1px solid ${S.brd}` }}>
                           <div style={{ padding:'10px 14px', display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
                             <div style={{ flex:1, minWidth:220 }}>
                               <div style={{ fontSize:12, color:inlineAction.type==='approve'?S.ok:S.err, marginBottom:4, fontWeight:600 }}>
@@ -680,13 +627,12 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
                     <tr key={e.id}>
                       <td style={tdStyle}><span style={{ fontSize:12, color:S.tx2, whiteSpace:'nowrap' }}>{e.fecha}</span></td>
                       <td style={tdStyle}><div style={{ display:'flex', alignItems:'center', gap:6 }}><div style={{ width:24, height:24, borderRadius:'50%', background:u.color+'28', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:u.color }}>{u.initials}</div><span style={{ fontSize:13 }}>{e.userName.split(' ')[0]}</span></div></td>
-                      <td style={tdStyle}>{e.proveedor}{e.aiExtracted && <span style={{ fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:20, background:'#1a1535', color:S.acc2, border:`1px solid ${S.acc}`, marginLeft:4 }}>✨IA</span>}</td>
+                      <td style={tdStyle}>{e.proveedor}{e.aiExtracted && <span style={{ fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:20, background:'#1a1200', color:S.acc2, border:`1px solid ${S.acc}`, marginLeft:4 }}>✨IA</span>}</td>
                       <td style={tdStyle}><span style={{ fontSize:11, background:S.bg2, padding:'2px 7px', borderRadius:5, color:S.tx2 }}>{e.categoria}</span></td>
                       <td style={{ ...tdStyle, fontWeight:600, whiteSpace:'nowrap' }}>{fmt(e.monto)}</td>
                       <td style={tdStyle}><StatusBadge status={e.status} /></td>
                       <td style={tdStyle}><div style={{ display:'flex', gap:6 }}>
                         <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => setDetailExp(e)}>Ver</button>
-                        {e.fileUrl && <a href={e.fileUrl} target="_blank" rel="noreferrer" style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7, textDecoration:'none', color:S.acc2 }}>📎</a>}
                         {e.status === 'approved' && <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => generatePDF(e)}>↓ PDF</button>}
                         {e.status === 'pending' && <>
                           <button style={{ ...css.btn('ok'), padding:'5px 9px', fontSize:12 }} onClick={() => { setActionModal({ exp:e, type:'approve' }); setComment(''); }}>✓</button>
@@ -724,7 +670,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
       </div>}
 
       {detailExp && <Modal title="Detalle rendición" onClose={() => setDetailExp(null)}>
-        {detailExp.aiExtracted && <div style={{ background:'#0f0f1e', border:`1px solid ${S.acc}`, borderRadius:10, padding:'10px 14px', marginBottom:12, fontSize:12, color:S.acc2 }}>✨ Datos extraídos automáticamente por Claude</div>}
+        {detailExp.aiExtracted && <div style={{ background:S.bg1, border:`1px solid ${S.brd}`, borderRadius:10, padding:'10px 14px', marginBottom:12, fontSize:12, color:S.acc2 }}>✨ Datos extraídos automáticamente por Gemini</div>}
         <div style={{ ...css.card, marginBottom:12 }}>
           {[['Usuario',detailExp.userName],['Proveedor',detailExp.proveedor],['RUT',detailExp.rut||'—'],['N° Documento',detailExp.ndoc||'—'],['Fecha',detailExp.fecha],['Monto',fmt(detailExp.monto)],['Categoría',detailExp.categoria],['Centro costo',detailExp.centroCosto],['Ítems',detailExp.items||'—'],['Comentario',detailExp.comentario||'—'],['Archivo',detailExp.fileName||'—']].map(([l,v],i) => (
             <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', padding:'7px 0', borderBottom:`1px solid ${S.brd}` }}>
@@ -782,27 +728,11 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [geminiKey, setGeminiKey] = useState('');
   const showToast = (msg, type = 'ok') => setToast({ msg, type, key: Date.now() });
-  const [keySaved, setKeySaved] = useState(false);
-  const [keyTesting, setKeyTesting] = useState(false);
-  const saveGeminiKey = (val) => { setGeminiKey(val); setKeySaved(false); };
-  const handleSaveAndTestKey = async () => {
-    if (!geminiKey.trim()) return;
-    setKeyTesting(true);
-    await saveGeminiKeyStorage(geminiKey.trim());
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey.trim()}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: 'Responde solo: OK' }] }], generationConfig: { maxOutputTokens: 5 } })
-      });
-      if (res.ok) { setKeySaved(true); showToast('Clave guardada y verificada ✓', 'ok'); }
-      else { const e = await res.json(); showToast('Error: ' + (e.error?.message || `HTTP ${res.status}`), 'err'); }
-    } catch (e) { showToast('Error de red: ' + e.message, 'err'); }
-    setKeyTesting(false);
-  };
+  const saveGeminiKey = (val) => { setGeminiKey(val); saveGeminiKeyStorage(val); };
 
   useEffect(() => {
     (async () => {
-      try { const [exps, ud, key] = await Promise.all([loadAll(), loadUsers(), loadGeminiKey()]); setExpenses(exps); setUserData(ud || initUsers()); setGeminiKey(key); if (key) setKeySaved(true); }
+      try { const [exps, ud, key] = await Promise.all([loadAll(), loadUsers(), loadGeminiKey()]); setExpenses(exps); setUserData(ud || initUsers()); setGeminiKey(key); }
       catch (e) { setUserData(initUsers()); }
       setLoading(false);
     })();
@@ -810,8 +740,6 @@ export default function App() {
 
   const handleNewExpense = async (exp) => setExpenses(p => [exp, ...p]);
   const handleUpdateExpense = async (upd) => { await saveExpense(upd); setExpenses(p => p.map(e => e.id === upd.id ? upd : e)); };
-  const handleEditExpense = async (upd) => { setExpenses(p => p.map(e => e.id === upd.id ? upd : e)); };
-  const handleDeleteExpense = async (exp) => { await deleteExpense(exp.id); setExpenses(p => p.filter(e => e.id !== exp.id)); showToast('Rendición eliminada', 'ok'); };
   const handleUpdateUserData = async (d) => { await saveUsers(d); setUserData(d); };
 
   if (loading) return (
@@ -824,12 +752,11 @@ export default function App() {
   );
 
   if (!user) return (
-    <div style={{ ...css.wrap, display:'flex', alignItems:'center', justifyContent:'center', padding:16, background:'radial-gradient(ellipse at 50% 0%,#1e1a40 0%,#0d0d14 65%)' }}>
-      <div style={{ background:S.bg1, border:`1px solid ${S.brd2}`, borderRadius:20, padding:'2.5rem 2rem', width:'100%', maxWidth:420 }}>
+    <div style={{ ...css.wrap, display:'flex', alignItems:'center', justifyContent:'center', padding:16, background:'radial-gradient(ellipse at 50% 0%,#1a1100 0%,#050505 70%)' }}>
+      <div style={{ background:S.bg1, border:`1px solid ${S.brd}`, borderRadius:20, padding:'2.5rem 2rem', width:'100%', maxWidth:420 }}>
         <div style={{ textAlign:'center', marginBottom:24 }}>
-          <div style={{ width:52, height:52, background:S.acc, borderRadius:14, margin:'0 auto 12px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, boxShadow:'0 0 40px #7c6ff740' }}>💼</div>
-          <div style={{ fontSize:22, fontWeight:700, marginBottom:4 }}>Fondos Corporativos</div>
-          <div style={{ fontSize:13, color:S.tx2 }}>Boragó — Rendición de gastos</div>
+          <BoragonLogo size={26} />
+          <div style={{ marginTop:10, fontSize:12, color:S.tx2, letterSpacing:'.06em' }}>Rendición de Gastos</div>
         </div>
         <div style={{ fontSize:12, color:S.tx3, textAlign:'center', marginBottom:10 }}>Selecciona tu perfil</div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
@@ -845,30 +772,21 @@ export default function App() {
           <span style={{ position:'relative', zIndex:1, background:S.bg1, padding:'0 8px' }}>Administrador</span>
           <div style={{ position:'absolute', top:'50%', left:0, right:0, height:1, background:S.brd, zIndex:0 }} />
         </div>
-        <button onClick={() => setUser(ADMIN)} style={{ background:'#1a1600', border:'1px solid #f59e0b30', borderRadius:12, padding:'12px', width:'100%', cursor:'pointer', textAlign:'center', color:S.tx1 }}>
-          <div style={{ width:38, height:38, borderRadius:'50%', background:'#f59e0b18', border:'1.5px solid #f59e0b44', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#f59e0b', margin:'0 auto 6px' }}>{ADMIN.initials}</div>
+        <button onClick={() => setUser(ADMIN)} style={{ background:S.bg2, border:`1px solid ${S.brd}`, borderRadius:12, padding:'12px', width:'100%', cursor:'pointer', textAlign:'center', color:S.tx1 }}>
+          <div style={{ width:38, height:38, borderRadius:'50%', background:ADMIN.color+'18', border:`1.5px solid ${ADMIN.color}55`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:ADMIN.color, margin:'0 auto 6px' }}>{ADMIN.initials}</div>
           <div style={{ fontSize:13, fontWeight:600 }}>{ADMIN.name}</div>
           <div style={{ fontSize:11, color:S.tx2, marginTop:2 }}>{ADMIN.role} — Vista completa</div>
         </button>
         <div style={{ marginTop:16, paddingTop:14, borderTop:`1px solid ${S.brd}` }}>
           <div style={{ fontSize:11, color:S.tx3, marginBottom:6 }}>⚙ OCR automático — Gemini API key <span style={{ color:S.acc2 }}>(opcional)</span></div>
-          <div style={{ display:'flex', gap:6 }}>
-            <input
-              style={{ ...css.input, fontSize:12, flex:1 }}
-              type="password"
-              placeholder="Pegar API key de Google AI Studio..."
-              value={geminiKey}
-              onChange={e => saveGeminiKey(e.target.value)}
-            />
-            <button onClick={handleSaveAndTestKey} disabled={!geminiKey.trim() || keyTesting}
-              style={{ ...css.btn('primary'), padding:'0 12px', fontSize:12, whiteSpace:'nowrap', opacity: (!geminiKey.trim() || keyTesting) ? 0.5 : 1 }}>
-              {keyTesting ? '...' : keySaved ? '✓' : 'Guardar'}
-            </button>
-          </div>
-          {geminiKey && <div style={{ fontSize:10, color:S.tx3, marginTop:4 }}>
-            Clave activa: <span style={{ color:S.tx2, fontFamily:'monospace' }}>{geminiKey.slice(0,8)}...{geminiKey.slice(-4)}</span>
-          </div>}
-          <div style={{ fontSize:10, color:S.tx3, marginTop:4 }}>Sin key el formulario funciona manual. Se guarda en este navegador.</div>
+          <input
+            style={{ ...css.input, fontSize:12 }}
+            type="password"
+            placeholder="Pegar API key de Google AI Studio..."
+            value={geminiKey}
+            onChange={e => saveGeminiKey(e.target.value)}
+          />
+          <div style={{ fontSize:10, color:S.tx3, marginTop:5 }}>Sin key el formulario funciona manual. Se guarda en este navegador.</div>
         </div>
       </div>
     </div>
@@ -878,9 +796,10 @@ export default function App() {
   return (
     <div style={css.wrap}>
       <div style={{ background:S.bg1, borderBottom:`1px solid ${S.brd}`, padding:'10px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:100 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <div style={{ width:28, height:28, background:S.acc, borderRadius:7, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}>💼</div>
-          <span style={{ fontWeight:700, fontSize:15 }}>Fondos Corporativos</span>
+        <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+          <BoragonLogo size={17} />
+          <span style={{ width:1, height:18, background:S.brd, display:'inline-block' }} />
+          <span style={{ fontSize:12, color:S.tx2, letterSpacing:'.04em' }}>Fondos Corporativos</span>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
@@ -892,7 +811,7 @@ export default function App() {
       </div>
       {isAdmin
         ? <AdminView expenses={expenses} userData={userData} onUpdateExpense={handleUpdateExpense} onUpdateUserData={handleUpdateUserData} toast={showToast} />
-        : <UserView user={user} expenses={expenses} userData={userData} onNewExpense={handleNewExpense} onEditExpense={handleEditExpense} onDeleteExpense={handleDeleteExpense} toast={showToast} geminiKey={geminiKey} />}
+        : <UserView user={user} expenses={expenses} userData={userData} onNewExpense={handleNewExpense} toast={showToast} geminiKey={geminiKey} />}
       {toast && <Toast key={toast.key} msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
     </div>
   );
