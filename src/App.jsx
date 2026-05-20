@@ -186,7 +186,7 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
       if (data.items) { nf.items = data.items; filled.push('items'); }
       setForm(nf); setAiFields(filled); setOcr('done');
       toast(`✨ Gemini extrajo ${filled.length} campos`, 'inf');
-    } catch (err) { setOcr('error'); toast('No se pudo leer. Completa manualmente.', 'err'); }
+    } catch (err) { setOcr('error'); toast('OCR error: ' + (err?.message || 'desconocido'), 'err'); }
   };
 
   const handleSubmit = async () => {
