@@ -66,7 +66,7 @@ async function extractDocumentData(file, apiKey) {
               { inline_data: { mime_type: mimeType, data: base64 } },
               { text: 'Extrae datos de esta boleta/factura chilena. Responde SOLO JSON válido:\n{"proveedor":"nombre","rut":"XX.XXX.XXX-X","monto":numero,"fecha":"YYYY-MM-DD","ndoc":"folio","items":"descripción"}\nSin explicaciones. Solo el JSON.' }
             ]}],
-            generationConfig: { maxOutputTokens: 1024, responseMimeType: 'application/json' }
+            generationConfig: { maxOutputTokens: 4096, responseMimeType: 'application/json' }
           })
         });
         if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || `HTTP ${res.status}`); }
