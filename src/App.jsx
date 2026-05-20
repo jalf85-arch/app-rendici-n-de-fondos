@@ -162,6 +162,7 @@ function FLabel({ children }) {
 function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
   const [file, setFile] = useState(null);
   const [ocr, setOcr] = useState(null);
+  const [ocrErr, setOcrErr] = useState('');
   const [aiFields, setAiFields] = useState([]);
   const [form, setForm] = useState({ proveedor:'', rut:'', monto:'', fecha:today(), ndoc:'', items:'', categoria:'Insumos', centroCosto:'Administración', comentario:'' });
   const [saving, setSaving] = useState(false);
@@ -186,7 +187,7 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
       if (data.items) { nf.items = data.items; filled.push('items'); }
       setForm(nf); setAiFields(filled); setOcr('done');
       toast(`✨ Gemini extrajo ${filled.length} campos`, 'inf');
-    } catch (err) { setOcr('error'); toast('OCR error: ' + (err?.message || 'desconocido'), 'err'); }
+    } catch (err) { const msg = err?.message || 'desconocido'; setOcrErr(msg); setOcr('error'); toast('OCR error: ' + msg, 'err'); }
   };
 
   const handleSubmit = async () => {
@@ -221,7 +222,7 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
           <div style={{ fontSize:12, color:S.acc2, marginBottom:3 }}>✨ {aiFields.length} campos completados automáticamente</div>
           <div style={{ fontSize:11, color:S.tx3 }}>Los campos en morado fueron extraídos. Revisa antes de enviar.</div>
         </div>}
-        {ocr === 'error' && <div style={{ marginTop:8, padding:'8px 12px', background:'#1c0505', border:'1px solid #7f1d1d40', borderRadius:8, fontSize:12, color:S.err }}>⚠️ No se pudo leer. Completa manualmente.</div>}
+        {ocr === 'error' && <div style={{ marginTop:8, padding:'8px 12px', background:'#1c0505', border:'1px solid #7f1d1d40', borderRadius:8, fontSize:12, color:S.err }}>⚠️ Error OCR: {ocrErr || 'desconocido'}</div>}
       </div>
 
       <div style={row}>
