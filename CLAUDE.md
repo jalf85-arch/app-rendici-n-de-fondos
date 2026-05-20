@@ -4,20 +4,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Single-file React app for corporate expense reporting at Boragó restaurant. It runs as an interactive artifact on Claude.ai — paste the full JSX, tell Claude to render it as an artifact, and enter the Gemini API key at login.
+Single-file React app for corporate expense reporting at Boragó restaurant. It can run as a Vite app (deployed on Vercel) or as an interactive artifact on Claude.ai.
 
-There are no build tools, package.json, or test suite. Development means editing the JSX and re-pasting into Claude.ai.
+**Files:**
+- `src/App.jsx` — **fuente de verdad**. Editar siempre aquí. Lo que Vercel sirve.
+- `src/fondos_app_1.jsx` — copia de `src/App.jsx` para pegar en Claude.ai como artifact. Regenerar copiando `src/App.jsx` cuando sea necesario.
+- `src/main.jsx`, `src/index.css` — boilerplate Vite; no tocar.
 
-**Active files:**
-- `fondos_app_1.jsx` — current production version (committed)
-- `fondos_app_v2.jsx` — work-in-progress version (untracked); edit this one when working on new features, then promote to v1 when ready
+## Commands
 
-## How to test / deploy
+```bash
+npm run dev      # local dev server (localhost:5173)
+npm run build    # production build to dist/
+npm run preview  # preview built app
+npm run lint     # ESLint
+```
 
-1. Edit the target JSX file
-2. Copy the entire file
-3. In a new Claude.ai conversation: paste and say `"Muestra este componente React como artifact interactivo"`
-4. Enter the Gemini API key at the login screen (loaded from Supabase `config` table or localStorage fallback)
+## Deploy a Vercel
+
+Cualquier push a `main` en GitHub redespliega automáticamente en `app-rendici-n-de-fondos.vercel.app`.
+
+Al hacer deploy desde Claude.ai, indicar explícitamente: *"usa el proyecto Vercel existente `app-rendici-n-de-fondos`, no crees uno nuevo"*.
+
+## Probar como artifact en Claude.ai
+
+1. Copiar todo el contenido de `src/App.jsx` (o `src/fondos_app_1.jsx`)
+2. En una conversación nueva de Claude.ai: pegar y escribir `"Muestra este componente React como artifact interactivo"`
+3. Ingresar la Gemini API key en la pantalla de login
 
 ## Architecture
 
