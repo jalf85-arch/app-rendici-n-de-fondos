@@ -69,9 +69,13 @@ async function extractDocumentData(file, apiKey) {
             generationConfig: { maxOutputTokens: 500 }
           })
         });
-        if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'API error'); }
+        if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || `HTTP ${res.status}`); }
         const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+        const candidate = data.candidates?.[0];
+        if (!candidate) throw new Error('Sin respuesta de Gemini (candidates vacío)');
+        const reason = candidate.finishReason;
+        if (reason && reason !== 'STOP') throw new Error(`Gemini no procesó la imagen (${reason})`);
+        const text = candidate.content?.parts?.[0]?.text || '{}';
         resolve(JSON.parse(text.replace(/```json|```/g, '').trim()));
       } catch (err) { reject(err); }
     };
