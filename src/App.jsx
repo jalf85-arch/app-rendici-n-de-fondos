@@ -20,7 +20,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 
 const SB_URL = 'https://lvzriwmlsyxgydtzyjan.supabase.co';
-const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx2enJpd21sc3l4Z3lkdHp5amFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2OTMzNzQsImV4cCI6MjA5NDI2OTM3NH0.TTMq4mQHMoTXFZ0EGcEth8RtB8PLnUN38eg0eymlKjs';
+const SB_KEY = 'sb_publishable_yF4J6NvMzy24zl_9ghszOQ_C6cBZP75';
 
 const sbFetch = (path, opts = {}) => fetch(`${SB_URL}/rest/v1${path}`, {
   ...opts,
