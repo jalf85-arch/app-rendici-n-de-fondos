@@ -733,8 +733,10 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      try { const [exps, ud, key] = await Promise.all([loadAll(), loadUsers(), loadGeminiKey()]); setExpenses(exps); setUserData(ud || initUsers()); setGeminiKey(key); }
-      catch (e) { setUserData(initUsers()); }
+      const [exps, ud, key] = await Promise.all([loadAll(), loadUsers(), loadGeminiKey()]);
+      setExpenses(exps);
+      setUserData(ud || initUsers());
+      setGeminiKey(key);
       setLoading(false);
     })();
   }, []);
@@ -778,16 +780,10 @@ export default function App() {
           <div style={{ fontSize:13, fontWeight:600 }}>{ADMIN.name}</div>
           <div style={{ fontSize:11, color:S.tx2, marginTop:2 }}>{ADMIN.role} — Vista completa</div>
         </button>
-        <div style={{ marginTop:16, paddingTop:14, borderTop:`1px solid ${S.brd}` }}>
-          <div style={{ fontSize:11, color:S.tx3, marginBottom:6 }}>⚙ OCR automático — Gemini API key <span style={{ color:S.acc2 }}>(opcional)</span></div>
-          <input
-            style={{ ...css.input, fontSize:12 }}
-            type="password"
-            placeholder="Pegar API key de Google AI Studio..."
-            value={geminiKey}
-            onChange={e => saveGeminiKey(e.target.value)}
-          />
-          <div style={{ fontSize:10, color:S.tx3, marginTop:5 }}>Sin key el formulario funciona manual. Se guarda en este navegador.</div>
+        <div style={{ marginTop:16, paddingTop:14, borderTop:`1px solid ${S.brd}`, textAlign:'center' }}>
+          <div style={{ fontSize:11, color: geminiKey ? S.ok : S.tx3 }}>
+            {geminiKey ? '✓ OCR automático activo (Gemini)' : '⚠ OCR no disponible — completa los campos manualmente'}
+          </div>
         </div>
       </div>
     </div>
