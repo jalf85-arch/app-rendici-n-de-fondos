@@ -8,7 +8,7 @@ Single-file React app for corporate expense reporting at Boragó restaurant. It 
 
 **Files:**
 - `src/App.jsx` — **fuente de verdad**. Editar siempre aquí. Lo que Vercel sirve.
-- `src/fondos_app_1.jsx` — copia de `src/App.jsx` para pegar en Claude.ai como artifact. Regenerar copiando `src/App.jsx` cuando sea necesario.
+- `src/fondos_app_1.jsx` — copia manual de `src/App.jsx` para pegar en Claude.ai como artifact. Actualizar copiando el contenido de `src/App.jsx` cuando sea necesario; no se sincroniza automáticamente.
 - `src/main.jsx`, `src/index.css` — boilerplate Vite; no tocar.
 
 ## Commands
@@ -96,8 +96,9 @@ aiExtracted ↔ ai_extracted  |  fileName ↔ file_name  |  createdAt ↔ create
 ### `config` table
 Key-value store. Current row: `gemini_key` → Gemini API key.
 
-## OCR — Gemini 2.0 Flash
+## OCR — Gemini 2.5 Flash
 
+- Model: `gemini-2.5-flash` (endpoint: `generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`)
 - Free tier: 1,500 req/day; key obtained at https://aistudio.google.com/app/apikey
 - Key entered at login → persisted to `config` table (key=`gemini_key`) + localStorage fallback
 - `extractDocumentData(file, apiKey)` reads an image/PDF as base64 and returns structured JSON
@@ -125,19 +126,23 @@ Both use `await import(...)` for CDN libraries — required for Claude artifact 
 - Button variants: `'primary'`, `'secondary'`, `'ok'`, `'err'`, `'xs'`
 - Never add external CSS files or UI libraries — keep everything inline
 
+## Tests
+
+There is no test suite. Verify changes manually via `npm run dev` or by running as a Claude.ai artifact.
+
 ## Key architectural decisions (changelog)
 
 | Date | Change |
 |---|---|
-| 2026-05-13 | OCR migrated from Claude API (paid) to Gemini 2.0 Flash (free) |
+| 2026-05-13 | OCR migrated from Claude API (paid) to Gemini 2.5 Flash (free) |
 | 2026-05-13 | XLSX (3 sheets) + PDF comprobante exports added |
 | 2026-05-13 | Storage migrated from `window.storage` to Supabase for multi-user shared state |
 | 2026-05-13 | Gemini API key persisted to Supabase config + localStorage fallback |
 
 ## Context files
 
-- `contexto.md` — project overview and changelog (Spanish)
-- `supabase.md` — full DB schema and RLS details
-- `skill_xlsx.md` — XLSX export implementation notes
-- `skill_pdf.md` — PDF comprobante implementation notes
-- `skill_ocr.md` — OCR (Gemini) implementation notes
+- `supabase.md` — full DB schema, RLS policies, and camelCase ↔ snake_case mapping reference
+
+## Notes
+
+- `@supabase/supabase-js` is in `package.json` but **not used** — all Supabase calls go through the raw `sbFetch` wrapper (plain `fetch` + REST API). Don't import the SDK.
