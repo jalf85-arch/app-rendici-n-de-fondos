@@ -474,8 +474,8 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const exportCSV = () => {
-    const rows = [['Fecha','Usuario','Proveedor','RUT','N°Doc','Categoría','Centro','Monto','Estado','Ítems','IA','Obs']];
-    filtered.forEach(e => rows.push([e.fecha, e.userName, e.proveedor, e.rut||'', e.ndoc||'', e.categoria, e.centroCosto||'', e.monto, STATUS_LABELS[e.status]||'', e.items||'', e.aiExtracted?'Sí':'No', e.adminComment||e.comentario||'']));
+    const rows = [['Fecha','Usuario','Proveedor','RUT','N°Doc','Categoría','Centro','Monto','Estado','Ítems','IA','Comentario','Obs. Admin']];
+    filtered.forEach(e => rows.push([e.fecha, e.userName, e.proveedor, e.rut||'', e.ndoc||'', e.categoria, e.centroCosto||'', e.monto, STATUS_LABELS[e.status]||'', e.items||'', e.aiExtracted?'Sí':'No', e.comentario||'', e.adminComment||'']));
     const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
     const b = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'rendiciones.csv'; a.click();
@@ -492,11 +492,11 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
     try {
       const XLSX = await import("https://esm.sh/xlsx");
       const wb = XLSX.utils.book_new();
-      const sheet1 = [['Fecha','Usuario','Proveedor','Monto (CLP)','Categoría','Centro Costo','Estado','N° Doc','Ítems','Comentario']];
-      expenses.forEach(e => sheet1.push([e.fecha, e.userName, e.proveedor, e.monto, e.categoria, e.centroCosto||'', STATUS_LABELS[e.status]||e.status, e.ndoc||'', e.items||'', e.adminComment||e.comentario||'']));
-      sheet1.push([], ['TOTAL','','', expenses.reduce((s,e)=>s+e.monto,0),'','','','','','']);
+      const sheet1 = [['Fecha','Usuario','Proveedor','Monto (CLP)','Categoría','Centro Costo','Estado','N° Doc','Ítems','Comentario','Obs. Admin']];
+      expenses.forEach(e => sheet1.push([e.fecha, e.userName, e.proveedor, e.monto, e.categoria, e.centroCosto||'', STATUS_LABELS[e.status]||e.status, e.ndoc||'', e.items||'', e.comentario||'', e.adminComment||'']));
+      sheet1.push([], ['TOTAL','','', expenses.reduce((s,e)=>s+e.monto,0),'','','','','','','']);
       const ws1 = XLSX.utils.aoa_to_sheet(sheet1);
-      ws1['!cols'] = [{ wch:12 },{ wch:18 },{ wch:24 },{ wch:14 },{ wch:14 },{ wch:16 },{ wch:12 },{ wch:10 },{ wch:24 },{ wch:30 }];
+      ws1['!cols'] = [{ wch:12 },{ wch:18 },{ wch:24 },{ wch:14 },{ wch:14 },{ wch:16 },{ wch:12 },{ wch:10 },{ wch:24 },{ wch:30 },{ wch:30 }];
       ws1['!freeze'] = { xSplit:0, ySplit:1 };
       XLSX.utils.book_append_sheet(wb, ws1, 'Gastos');
       const catMap = {};
@@ -515,8 +515,8 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
       XLSX.utils.book_append_sheet(wb, ws3, 'Por Usuario');
       XLSX.writeFile(wb, fname + '.xlsx');
     } catch(e) {
-      const rows = [['Fecha','Usuario','Proveedor','Monto','Categoría','Estado','Ítems','Comentario']];
-      expenses.forEach(e => rows.push([e.fecha, e.userName, e.proveedor, e.monto, e.categoria, STATUS_LABELS[e.status]||'', e.items||'', e.adminComment||e.comentario||'']));
+      const rows = [['Fecha','Usuario','Proveedor','Monto','Categoría','Estado','Ítems','Comentario','Obs. Admin']];
+      expenses.forEach(e => rows.push([e.fecha, e.userName, e.proveedor, e.monto, e.categoria, STATUS_LABELS[e.status]||'', e.items||'', e.comentario||'', e.adminComment||'']));
       const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
       const b = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = fname+'.csv'; a.click();
