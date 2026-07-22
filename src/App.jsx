@@ -315,7 +315,9 @@ function UserView({ user, expenses, userData, onNewExpense, onReplaceExpense, on
   const [tab, setTab] = useState('list');
   const [editingExp, setEditingExp] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const myExp = expenses.filter(e => e.userId === user.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const [archFilters, setArchFilters] = useState({ from: '', to: '' });
+  const myExp = expenses.filter(e => e.userId === user.id && e.status !== 'liquidated').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const archivedExp = expenses.filter(e => e.userId === user.id && e.status === 'liquidated' && (!archFilters.from || e.fecha >= archFilters.from) && (!archFilters.to || e.fecha <= archFilters.to)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const approved = myExp.filter(e => e.status === 'approved').reduce((s, e) => s + e.monto, 0);
   const pending = myExp.filter(e => e.status === 'pending').reduce((s, e) => s + e.monto, 0);
   const ud = userData[user.id] || { assigned: 0 };
@@ -326,7 +328,7 @@ function UserView({ user, expenses, userData, onNewExpense, onReplaceExpense, on
   return (
     <div>
       <div style={{ display:'flex', background:S.bg1, borderBottom:`1px solid ${S.brd}`, overflowX:'auto' }}>
-        {[['list', 'Mis Rendiciones'], ['nueva', editingExp ? 'Editar Rendición' : 'Nueva Rendición']].map(([k, l]) => (
+        {[['list', 'Mis Rendiciones'], ['archivadas', 'Archivadas'], ['nueva', editingExp ? 'Editar Rendición' : 'Nueva Rendición']].map(([k, l]) => (
           <button key={k} onClick={() => { if (k === 'list') { setEditingExp(null); } setTab(k); }} style={{ padding:'10px 16px', fontSize:13, color:tab===k?S.acc2:S.tx2, background:'none', border:'none', borderBottom:tab===k?`2px solid ${S.acc}`:'2px solid transparent', cursor:'pointer', whiteSpace:'nowrap' }}>{l}</button>
         ))}
       </div>
@@ -357,6 +359,33 @@ function UserView({ user, expenses, userData, onNewExpense, onReplaceExpense, on
                         <button style={{ ...css.btn('err'), padding:'3px 8px', fontSize:11, borderRadius:7 }} onClick={() => setConfirmDelete(e)}>Anular</button>
                       </div>}
                     </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>}
+      </div>}
+
+      {tab === 'archivadas' && <div style={{ padding:16, maxWidth:1100, margin:'0 auto' }}>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:14, alignItems:'center' }}>
+          <input style={{ ...css.input, flex:1, minWidth:125 }} type="date" value={archFilters.from} onChange={e => setArchFilters(p => ({ ...p, from: e.target.value }))} />
+          <input style={{ ...css.input, flex:1, minWidth:125 }} type="date" value={archFilters.to} onChange={e => setArchFilters(p => ({ ...p, to: e.target.value }))} />
+          <button style={{ ...css.btn('secondary'), padding:'7px 12px', fontSize:12 }} onClick={() => setArchFilters({ from:'', to:'' })}>Limpiar</button>
+        </div>
+        {archivedExp.length === 0
+          ? <div style={{ textAlign:'center', padding:'3rem', color:S.tx3 }}><div style={{ fontSize:36, marginBottom:8 }}>🗄️</div>No tienes rendiciones liquidadas{(archFilters.from || archFilters.to) ? ' en ese rango' : ''}</div>
+          : <div style={{ overflowX:'auto', borderRadius:12, border:`1px solid ${S.brd}` }}>
+              <table style={{ width:'100%', borderCollapse:'collapse', minWidth:560 }}>
+                <thead><tr style={{ background:S.bg2 }}>
+                  {['Fecha','Proveedor','Categoría','Monto','Estado','Obs.'].map(h => <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontSize:11, color:S.tx2, fontWeight:600, textTransform:'uppercase', letterSpacing:'.05em', borderBottom:`1px solid ${S.brd}` }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{archivedExp.map(e => (
+                  <tr key={e.id} style={{ borderBottom:`1px solid ${S.brd}` }}>
+                    <td style={{ padding:'10px 12px', fontSize:12, color:S.tx2, whiteSpace:'nowrap' }}>{e.fecha}</td>
+                    <td style={{ padding:'10px 12px', fontSize:13 }}>{e.proveedor}{e.aiExtracted && <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:20, background:'#1a1200', color:S.acc2, border:`1px solid ${S.acc}`, marginLeft:4 }}>✨IA</span>}<br /><span style={{ fontSize:10, color:S.tx3 }}>{e.ndoc ? '#' + e.ndoc : ''}</span></td>
+                    <td style={{ padding:'10px 12px' }}><span style={{ fontSize:11, background:S.bg2, padding:'2px 7px', borderRadius:5, color:S.tx2 }}>{e.categoria}</span></td>
+                    <td style={{ padding:'10px 12px', fontWeight:600, whiteSpace:'nowrap', fontSize:13 }}>{fmt(e.monto)}</td>
+                    <td style={{ padding:'10px 12px' }}><StatusBadge status={e.status} /></td>
+                    <td style={{ padding:'10px 12px', fontSize:12, color:S.tx3, maxWidth:140 }}>{e.adminComment || e.comentario || '—'}</td>
                   </tr>
                 ))}</tbody>
               </table>
