@@ -333,7 +333,7 @@ function UserView({ user, expenses, userData, onNewExpense, onReplaceExpense, on
 
       {tab === 'list' && <div style={{ padding:16, maxWidth:1100, margin:'0 auto' }}>
         <div style={{ background:S.bg2, border:`1px solid ${S.brd}`, borderRadius:14, padding:'16px 20px', marginBottom:14, display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
-          <div><div style={{ fontSize:12, color:S.tx2 }}>Fondo asignado</div><div style={{ fontSize:22, fontWeight:700, color:S.acc2 }}>{fmt(ud.assigned)}</div><div style={{ fontSize:12, color:S.tx2 }}>Saldo disponible: <b style={{ color:S.ok }}>{fmt(ud.assigned - approved - pending)}</b></div></div>
+          <div><div style={{ fontSize:12, color:S.tx2 }}>Fondo asignado</div><div style={{ fontSize:22, fontWeight:700, color:S.acc2 }}>{fmt(ud.assigned)}</div><div style={{ fontSize:12, color:S.tx2 }}>Saldo disponible: <b style={{ color:S.ok }}>{fmt(ud.assigned - pending)}</b></div></div>
           <div style={{ textAlign:'right' }}><div style={{ fontSize:12, color:S.tx2 }}>Aprobado</div><div style={{ fontSize:16, fontWeight:700, color:S.ok }}>{fmt(approved)}</div><div style={{ fontSize:12, color:S.tx2 }}>En revisión: <b style={{ color:S.inf }}>{fmt(pending)}</b></div></div>
         </div>
         {myExp.length === 0
@@ -464,12 +464,12 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
     if (!fundModal || !fundAmt || isNaN(Number(fundAmt))) return;
     const amt = Number(fundAmt);
     const ud = userData[fundModal.id] || { assigned: 0 };
-    const newSpent = expenses.filter(e => e.userId === fundModal.id && e.status === 'approved').reduce((s, e) => s + e.monto, 0);
+    const newSpent = expenses.filter(e => e.userId === fundModal.id && e.status === 'pending').reduce((s, e) => s + e.monto, 0);
     await onUpdateUserData({ ...userData, [fundModal.id]: { ...ud, assigned: ud.assigned + amt, spent: newSpent, balance: (ud.assigned + amt) - newSpent } });
     toast(`Fondo asignado a ${fundModal.name}`, 'ok'); setFundModal(null); setFundAmt('');
   };
 
-  const approvedExp = expenses.filter(e => e.status === 'approved');
+  const approvedExp = expenses.filter(e => e.status === 'approved' || e.status === 'liquidated');
   const catPieData = CATS.map((c, i) => ({ name: c, value: approvedExp.filter(e => e.categoria === c).reduce((s, e) => s + e.monto, 0), color: CAT_COLORS[i] })).filter(d => d.value > 0);
   const monthUserData = USERS.map(u => ({ name: u.name.split(' ')[0], value: approvedExp.filter(e => e.userId === u.id && e.fecha?.startsWith(thisMonth())).reduce((s, e) => s + e.monto, 0), color: u.color }));
   const monthlyTrend = () => {
@@ -525,7 +525,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
       ws2['!cols'] = [{ wch:16 },{ wch:16 },{ wch:16 },{ wch:10 }];
       XLSX.utils.book_append_sheet(wb, ws2, 'Por Categoría');
       const userMap = {};
-      expenses.forEach(e => { if (!userMap[e.userId]) userMap[e.userId] = { name:e.userName, total:0, approved:0, pending:0, count:0 }; userMap[e.userId].total += e.monto; userMap[e.userId].count++; if(e.status==='approved') userMap[e.userId].approved += e.monto; if(e.status==='pending') userMap[e.userId].pending += e.monto; });
+      expenses.forEach(e => { if (!userMap[e.userId]) userMap[e.userId] = { name:e.userName, total:0, approved:0, pending:0, count:0 }; userMap[e.userId].total += e.monto; userMap[e.userId].count++; if(e.status==='approved' || e.status==='liquidated') userMap[e.userId].approved += e.monto; if(e.status==='pending') userMap[e.userId].pending += e.monto; });
       const sheet3 = [['Usuario','Total (CLP)','Aprobado (CLP)','En Revisión (CLP)','Cantidad']];
       Object.values(userMap).sort((a,b)=>b.total-a.total).forEach(d => sheet3.push([d.name, d.total, d.approved, d.pending, d.count]));
       const ws3 = XLSX.utils.aoa_to_sheet(sheet3);
@@ -770,7 +770,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
                       <td style={tdStyle}><div style={{ display:'flex', gap:6 }}>
                         <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => setDetailExp(e)}>Ver</button>
                         <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => openAdminEdit(e)}>✏</button>
-                        {e.status === 'approved' && <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => generatePDF(e)}>↓ PDF</button>}
+                        {(e.status === 'approved' || e.status === 'liquidated') && <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => generatePDF(e)}>↓ PDF</button>}
                         {e.status === 'pending' && <>
                           <button style={{ ...css.btn('ok'), padding:'5px 9px', fontSize:12 }} onClick={() => { setActionModal({ exp:e, type:'approve' }); setComment(''); }}>✓</button>
                           <button style={{ ...css.btn('err'), padding:'5px 9px', fontSize:12 }} onClick={() => { setActionModal({ exp:e, type:'reject' }); setComment(''); }}>✕</button>
@@ -830,7 +830,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
         </div>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
           <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => { openAdminEdit(detailExp); setDetailExp(null); }}>✏ Editar</button>
-          {detailExp.status === 'approved' && <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => generatePDF(detailExp)}>↓ PDF</button>}
+          {(detailExp.status === 'approved' || detailExp.status === 'liquidated') && <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => generatePDF(detailExp)}>↓ PDF</button>}
           {detailExp.status === 'pending' && <>
             <button style={{ ...css.btn('ok'), flex:1 }} onClick={() => { setActionModal({ exp:detailExp, type:'approve' }); setComment(''); setDetailExp(null); }}>✓ Aprobar</button>
             <button style={{ ...css.btn('err'), flex:1 }} onClick={() => { setActionModal({ exp:detailExp, type:'reject' }); setComment(''); setDetailExp(null); }}>✕ Rechazar</button>
