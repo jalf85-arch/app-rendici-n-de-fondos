@@ -12,7 +12,7 @@ const ADMIN = { id: 'alan', name: 'Alan Estévez', role: 'Finanzas', color: '#e8
 const CATS = ['Movilidad','Fletes y despachos','Insumo Sala','Insumo Cocina','Reparaciones','Costo','Gastos TK','Gastos ATB','Equipamiento','Gastos de Personal','Otros'];
 const CAT_COLORS = ['#e8b84b','#38bdf8','#22c55e','#f43f5e','#a855f7','#fb923c','#06b6d4','#84cc16','#ec4899','#6366f1','#94a3b8'];
 const COSTOS = ['Cocina', 'Sala', 'Bar', 'Eventos', 'Administración', 'Bodega'];
-const STATUS_LABELS = { pending: 'Pendiente', approved: 'Aprobada', rejected: 'Rechazada' };
+const STATUS_LABELS = { pending: 'Pendiente', approved: 'Aprobada', rejected: 'Rechazada', liquidated: 'Liquidada' };
 
 const fmt = n => Number(n || 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 });
 const genId = () => 'e_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
@@ -124,7 +124,7 @@ const css = {
     return { ...variants[v], borderRadius:9, padding:'.5rem 1rem', fontSize:13, fontWeight:600, cursor:'pointer' };
   },
   badge: (s) => {
-    const m = { pending:{bg:'#2d1f00',color:S.warn,border:'1px solid #92400e'}, approved:{bg:'#052e16',color:S.ok,border:'1px solid #166534'}, rejected:{bg:'#1c0505',color:S.err,border:'1px solid #991b1b'} };
+    const m = { pending:{bg:'#2d1f00',color:S.warn,border:'1px solid #92400e'}, approved:{bg:'#052e16',color:S.ok,border:'1px solid #166534'}, rejected:{bg:'#1c0505',color:S.err,border:'1px solid #991b1b'}, liquidated:{bg:'#0c1f2d',color:S.inf,border:'1px solid #0e5a74'} };
     const d = m[s] || m.pending;
     return { display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:20, background:d.bg, color:d.color, border:d.border, whiteSpace:'nowrap' };
   },
@@ -149,7 +149,7 @@ function Toast({ msg, type, onDone }) {
 }
 
 function StatusBadge({ status }) {
-  const dot = { pending:'🟡', approved:'🟢', rejected:'🔴' }[status] || '🟡';
+  const dot = { pending:'🟡', approved:'🟢', rejected:'🔴', liquidated:'🔵' }[status] || '🟡';
   return <span style={css.badge(status)}>{dot} {STATUS_LABELS[status] || status}</span>;
 }
 
@@ -407,6 +407,9 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
   const [bulkModal, setBulkModal] = useState(false);
   const [bulkComment, setBulkComment] = useState('');
   const [bulkApproving, setBulkApproving] = useState(false);
+  const [adminEditExp, setAdminEditExp] = useState(null);
+  const [adminEditForm, setAdminEditForm] = useState({});
+  const [adminEditSaving, setAdminEditSaving] = useState(false);
   const setF = (k, v) => setFilters(p => ({ ...p, [k]: v }));
 
   const pendingExp = expenses.filter(e => e.status === 'pending').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -442,6 +445,21 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
     toast(`✅ ${toApprove.length} rendicion${toApprove.length !== 1 ? 'es aprobadas' : ' aprobada'}`, 'ok');
     setBulkApproving(false); setBulkModal(false); setBulkComment('');
   };
+  const openAdminEdit = (exp) => {
+    setAdminEditExp(exp);
+    setAdminEditForm({ proveedor: exp.proveedor || '', rut: exp.rut || '', monto: String(exp.monto || ''), fecha: exp.fecha || '', ndoc: exp.ndoc || '', items: exp.items || '', categoria: exp.categoria || '', centroCosto: exp.centroCosto || '', comentario: exp.comentario || '' });
+  };
+  const saveAdminEdit = async () => {
+    if (!adminEditForm.proveedor.trim() || !adminEditForm.monto || !adminEditForm.fecha || !adminEditForm.categoria) { toast('Proveedor, monto, fecha y categoría son obligatorios', 'err'); return; }
+    setAdminEditSaving(true);
+    const updated = { ...adminEditExp, proveedor: adminEditForm.proveedor.trim(), rut: adminEditForm.rut.trim() || null, monto: Number(adminEditForm.monto), fecha: adminEditForm.fecha, ndoc: adminEditForm.ndoc.trim() || null, items: adminEditForm.items.trim() || null, categoria: adminEditForm.categoria, centroCosto: adminEditForm.centroCosto || null, comentario: adminEditForm.comentario.trim() || null };
+    await onUpdateExpense(updated);
+    toast('✏ Rendición corregida', 'ok');
+    setAdminEditSaving(false);
+    setAdminEditExp(null);
+    if (detailExp?.id === updated.id) setDetailExp(updated);
+  };
+
   const assignFund = async () => {
     if (!fundModal || !fundAmt || isNaN(Number(fundAmt))) return;
     const amt = Number(fundAmt);
@@ -690,6 +708,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
                         <td style={tdStyle}>
                           <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
                             <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => setDetailExp(e)}>Ver</button>
+                            <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => openAdminEdit(e)}>✏</button>
                             <button style={{ ...css.btn('ok'), padding:'5px 10px', fontSize:12 }} onClick={() => { setInlineAction({ exp:e, type:'approve' }); setInlineComment(''); }}>✓ Aprobar</button>
                             <button style={{ ...css.btn('err'), padding:'5px 10px', fontSize:12 }} onClick={() => { setInlineAction({ exp:e, type:'reject' }); setInlineComment(''); }}>✕ Rechazar</button>
                           </div>
@@ -722,7 +741,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12, alignItems:'center' }}>
           <select style={{ ...css.select, flex:1, minWidth:110 }} value={filters.user} onChange={e => setF('user', e.target.value)}><option value="">Todos</option>{USERS.map(u => <option key={u.id} value={u.id} style={{ background:S.bg2 }}>{u.name.split(' ')[0]}</option>)}</select>
           <select style={{ ...css.select, flex:1, minWidth:110 }} value={filters.cat} onChange={e => setF('cat', e.target.value)}><option value="">Categoría</option>{CATS.map(c => <option key={c} style={{ background:S.bg2 }}>{c}</option>)}</select>
-          <select style={{ ...css.select, flex:1, minWidth:110 }} value={filters.status} onChange={e => setF('status', e.target.value)}><option value="">Estado</option><option value="pending" style={{ background:S.bg2 }}>Pendiente</option><option value="approved" style={{ background:S.bg2 }}>Aprobada</option><option value="rejected" style={{ background:S.bg2 }}>Rechazada</option></select>
+          <select style={{ ...css.select, flex:1, minWidth:110 }} value={filters.status} onChange={e => setF('status', e.target.value)}><option value="">Estado</option><option value="pending" style={{ background:S.bg2 }}>Pendiente</option><option value="approved" style={{ background:S.bg2 }}>Aprobada</option><option value="liquidated" style={{ background:S.bg2 }}>Liquidada</option><option value="rejected" style={{ background:S.bg2 }}>Rechazada</option></select>
           <input style={{ ...css.input, flex:1, minWidth:125 }} type="date" value={filters.from} onChange={e => setF('from', e.target.value)} />
           <input style={{ ...css.input, flex:1, minWidth:125 }} type="date" value={filters.to} onChange={e => setF('to', e.target.value)} />
           <button style={{ ...css.btn('secondary'), padding:'7px 12px', fontSize:12 }} onClick={() => setFilters({ user:'', cat:'', status:'', from:'', to:'' })}>Limpiar</button>
@@ -750,6 +769,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
                       </td>
                       <td style={tdStyle}><div style={{ display:'flex', gap:6 }}>
                         <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => setDetailExp(e)}>Ver</button>
+                        <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => openAdminEdit(e)}>✏</button>
                         {e.status === 'approved' && <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => generatePDF(e)}>↓ PDF</button>}
                         {e.status === 'pending' && <>
                           <button style={{ ...css.btn('ok'), padding:'5px 9px', fontSize:12 }} onClick={() => { setActionModal({ exp:e, type:'approve' }); setComment(''); }}>✓</button>
@@ -809,7 +829,8 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
           {detailExp.adminComment && <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', borderTop:`1px solid ${S.brd}` }}><span style={{ fontSize:12, color:S.tx2 }}>Obs. Finanzas</span><span style={{ fontSize:13, fontWeight:500, textAlign:'right' }}>{detailExp.adminComment}</span></div>}
         </div>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-          {detailExp.status === 'approved' && <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => generatePDF(detailExp)}>↓ Comprobante PDF</button>}
+          <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => { openAdminEdit(detailExp); setDetailExp(null); }}>✏ Editar</button>
+          {detailExp.status === 'approved' && <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => generatePDF(detailExp)}>↓ PDF</button>}
           {detailExp.status === 'pending' && <>
             <button style={{ ...css.btn('ok'), flex:1 }} onClick={() => { setActionModal({ exp:detailExp, type:'approve' }); setComment(''); setDetailExp(null); }}>✓ Aprobar</button>
             <button style={{ ...css.btn('err'), flex:1 }} onClick={() => { setActionModal({ exp:detailExp, type:'reject' }); setComment(''); setDetailExp(null); }}>✕ Rechazar</button>
@@ -847,6 +868,30 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
           <button style={{ ...css.btn('ok'), flex:1, opacity:(!bulkComment.trim() || bulkApproving) ? .5 : 1 }} onClick={doBulkApprove} disabled={!bulkComment.trim() || bulkApproving}>
             {bulkApproving ? 'Aprobando...' : `✓ Aprobar ${pendingExp.length} rendiciones`}
           </button>
+        </div>
+      </Modal>}
+
+      {adminEditExp && <Modal title="Corregir rendición" onClose={() => setAdminEditExp(null)}>
+        <div style={{ display:'grid', gap:10 }}>
+          <div><FLabel>Proveedor *</FLabel><input style={css.input} value={adminEditForm.proveedor} onChange={e => setAdminEditForm(p=>({...p,proveedor:e.target.value}))} /></div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            <div><FLabel>RUT proveedor</FLabel><input style={css.input} value={adminEditForm.rut} onChange={e => setAdminEditForm(p=>({...p,rut:e.target.value}))} placeholder="12.345.678-9" /></div>
+            <div><FLabel>N° Documento</FLabel><input style={css.input} value={adminEditForm.ndoc} onChange={e => setAdminEditForm(p=>({...p,ndoc:e.target.value}))} /></div>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            <div><FLabel>Monto (CLP) *</FLabel><input style={css.input} type="number" value={adminEditForm.monto} onChange={e => setAdminEditForm(p=>({...p,monto:e.target.value}))} /></div>
+            <div><FLabel>Fecha *</FLabel><input style={css.input} type="date" value={adminEditForm.fecha} onChange={e => setAdminEditForm(p=>({...p,fecha:e.target.value}))} /></div>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            <div><FLabel>Categoría *</FLabel><select style={css.select} value={adminEditForm.categoria} onChange={e => setAdminEditForm(p=>({...p,categoria:e.target.value}))}><option value="">Seleccionar...</option>{CATS.map(c=><option key={c} style={{background:S.bg2}}>{c}</option>)}</select></div>
+            <div><FLabel>Centro de costo</FLabel><select style={css.select} value={adminEditForm.centroCosto} onChange={e => setAdminEditForm(p=>({...p,centroCosto:e.target.value}))}><option value="">—</option>{COSTOS.map(c=><option key={c} style={{background:S.bg2}}>{c}</option>)}</select></div>
+          </div>
+          <div><FLabel>Ítems / descripción</FLabel><input style={css.input} value={adminEditForm.items} onChange={e => setAdminEditForm(p=>({...p,items:e.target.value}))} placeholder="Detalle de la compra" /></div>
+          <div><FLabel>Comentario del usuario</FLabel><input style={css.input} value={adminEditForm.comentario} onChange={e => setAdminEditForm(p=>({...p,comentario:e.target.value}))} /></div>
+        </div>
+        <div style={{ display:'flex', gap:8, marginTop:14 }}>
+          <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => setAdminEditExp(null)}>Cancelar</button>
+          <button style={{ ...css.btn('primary'), flex:1, opacity:adminEditSaving?.5:1 }} onClick={saveAdminEdit} disabled={adminEditSaving}>{adminEditSaving ? 'Guardando...' : '✏ Guardar cambios'}</button>
         </div>
       </Modal>}
 
