@@ -38,8 +38,8 @@ Everything lives in one file. Top-to-bottom structure:
 
 - **Constants** — `USERS`, `ADMIN`, `CATS` (11 expense categories), `CAT_COLORS`, `COSTOS` (centro de costo: Cocina/Sala/Bar/Eventos/Administración/Bodega), `STATUS_LABELS`
 - **Utilities** — `fmt` (CLP currency), `genId`, `today`, `thisMonth`
-- **Supabase layer** — `sbFetch`, `mapToDB`/`mapFromDB`, `loadAll`, `saveExpense`, `loadUsers`, `saveUsers`, `loadGeminiKey`, `saveGeminiKeyStorage`, `initUsers`
-- **OCR** — `extractDocumentData(file, apiKey)` — calls Gemini 2.0 Flash, returns `{ proveedor, rut, monto, fecha, ndoc, items }`
+- **Supabase layer** — `sbFetch`, `mapToDB`/`mapFromDB`, `loadAll`, `saveExpense`, `deleteExpense`, `uploadReceipt` (Storage), `loadUsers`, `saveUsers`, `loadGeminiKey`, `saveGeminiKeyStorage`, `initUsers`
+- **OCR** — `extractDocumentData(file, apiKey)` — calls Gemini 2.5 Flash, returns `{ proveedor, rut, monto, fecha, ndoc, items }`
 - **Style system** — `S` (color tokens) + `css` (component styles, all inline — no CSS files)
 - **Shared UI** — `Toast`, `StatusBadge`, `Modal`, `Avatar`, `FLabel`
 - **Components** — `ExpenseForm`, `UserView`, `AdminView`
@@ -60,7 +60,7 @@ Everything lives in one file. Top-to-bottom structure:
 
 - **Project:** `fondos-borago` — region `sa-east-1` (São Paulo), project ID `lvzriwmlsyxgydtzyjan`
 - **URL:** `https://lvzriwmlsyxgydtzyjan.supabase.co`
-- **Publishable key:** hardcoded at line 22 (`sb_publishable_...`) — intentionally public; protected by RLS "allow all" policies (internal app, no real auth)
+- **Publishable key:** hardcoded as `SB_KEY` at line 23 (`sb_publishable_...`) — intentionally public; protected by RLS "allow all" policies (internal app, no real auth)
 
 All writes use `Prefer: resolution=merge-duplicates` (upsert). The Supabase MCP is available — use `list_tables`, `execute_sql`, `get_logs`, `apply_migration` for direct DB access.
 
@@ -88,6 +88,7 @@ aiExtracted ↔ ai_extracted  |  fileName ↔ file_name  |  createdAt ↔ create
 | admin_comment | text? | required on approve/reject |
 | ai_extracted | boolean | true if OCR pre-filled the form |
 | file_name | text? | uploaded file name |
+| file_url | text? | public URL in Supabase Storage `receipts` bucket |
 | created_at | timestamptz | |
 
 ### `user_data` table
@@ -95,6 +96,12 @@ aiExtracted ↔ ai_extracted  |  fileName ↔ file_name  |  createdAt ↔ create
 
 ### `config` table
 Key-value store. Current row: `gemini_key` → Gemini API key.
+
+### Supabase Storage
+- **Bucket:** `receipts` (public) — stores uploaded receipt images/PDFs
+- Path pattern: `<expenseId>.<ext>` (e.g. `e_1234_abc.jpg`)
+- Public URL: `<SB_URL>/storage/v1/object/public/receipts/<path>`
+- `uploadReceipt(file, expId)` returns the public URL or `null` on failure; stored in `fileUrl`/`file_url`
 
 ## OCR — Gemini 2.5 Flash
 
@@ -108,9 +115,14 @@ Key-value store. Current row: `gemini_key` → Gemini API key.
 ## Expense lifecycle
 
 - Submit → `status: 'pending'`, deducted from user balance immediately
+- **Edit** — user can edit or cancel their own `pending` expenses; cancel calls `deleteExpense`
+- **Bulk approve** — admin can approve all pending expenses at once with a single comment (`bulkModal` state in `AdminView`)
 - Approve (admin) → `status: 'approved'`, admin comment required
 - Reject (admin) → `status: 'rejected'`, admin comment required
-- Balance formula: `assigned − approved_total − pending_total`
+- **Admin edit** — admin can correct any expense regardless of status (`adminEditExp`/`openAdminEdit`/`saveAdminEdit` in `AdminView`); does not change `status`
+- **Liquidar (admin)** — admin marks an `approved` expense as `liquidated` (archived), one at a time, no comment required, no reversal (`liquidateConfirm`/`doLiquidate` in `AdminView`). Liquidated expenses stop counting against the user's saldo disponible but still count in dashboard/report totals alongside `approved`
+- Balance formula: `assigned − pending_total` (approved and liquidated expenses no longer reduce available balance — they're assumed already reimbursed)
+- `categoria` is mandatory (enforced client-side)
 
 ## Exports (AdminView only)
 
@@ -138,6 +150,12 @@ There is no test suite. Verify changes manually via `npm run dev` or by running 
 | 2026-05-13 | XLSX (3 sheets) + PDF comprobante exports added |
 | 2026-05-13 | Storage migrated from `window.storage` to Supabase for multi-user shared state |
 | 2026-05-13 | Gemini API key persisted to Supabase config + localStorage fallback |
+| 2026-06-02 | Edit/cancel for pending expenses; mandatory category; bulk approve for admin |
+| 2026-06-02 | Receipt files backed up to Supabase Storage (`receipts` bucket); `file_url` added to expenses |
+| 2026-06-02 | Items column included in XLSX export |
+| 2026-06-02 | XLSX export splits `comentario` (user note) and `admin_comment` into separate columns |
+| 2026-07-22 | Admin can edit any expense regardless of status (`adminEditExp` in `AdminView`) |
+| 2026-07-22 | Added `liquidated` status: archives approved expenses, excludes them from active balance calc, adds admin "Liquidar" action and per-user "Archivadas" tab with date filter. All pre-existing `approved` expenses were migrated to `liquidated` |
 
 ## Context files
 

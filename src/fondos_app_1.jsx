@@ -12,7 +12,7 @@ const ADMIN = { id: 'alan', name: 'Alan Estévez', role: 'Finanzas', color: '#e8
 const CATS = ['Movilidad','Fletes y despachos','Insumo Sala','Insumo Cocina','Reparaciones','Costo','Gastos TK','Gastos ATB','Equipamiento','Gastos de Personal','Otros'];
 const CAT_COLORS = ['#e8b84b','#38bdf8','#22c55e','#f43f5e','#a855f7','#fb923c','#06b6d4','#84cc16','#ec4899','#6366f1','#94a3b8'];
 const COSTOS = ['Cocina', 'Sala', 'Bar', 'Eventos', 'Administración', 'Bodega'];
-const STATUS_LABELS = { pending: 'Pendiente', approved: 'Aprobada', rejected: 'Rechazada' };
+const STATUS_LABELS = { pending: 'Pendiente', approved: 'Aprobada', rejected: 'Rechazada', liquidated: 'Liquidada' };
 
 const fmt = n => Number(n || 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 });
 const genId = () => 'e_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
@@ -27,14 +27,30 @@ const sbFetch = (path, opts = {}) => fetch(`${SB_URL}/rest/v1${path}`, {
   headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation', ...(opts.headers || {}) }
 });
 
-const mapToDB = e => ({ id:e.id, user_id:e.userId, user_name:e.userName, proveedor:e.proveedor, rut:e.rut||null, monto:e.monto, fecha:e.fecha, ndoc:e.ndoc||null, items:e.items||null, categoria:e.categoria, centro_costo:e.centroCosto||null, comentario:e.comentario||null, status:e.status, admin_comment:e.adminComment||null, ai_extracted:e.aiExtracted||false, file_name:e.fileName||null, created_at:e.createdAt });
-const mapFromDB = r => ({ id:r.id, userId:r.user_id, userName:r.user_name, proveedor:r.proveedor, rut:r.rut, monto:Number(r.monto), fecha:r.fecha, ndoc:r.ndoc, items:r.items, categoria:r.categoria, centroCosto:r.centro_costo, comentario:r.comentario, status:r.status, adminComment:r.admin_comment, aiExtracted:r.ai_extracted, fileName:r.file_name, createdAt:r.created_at });
+const mapToDB = e => ({ id:e.id, user_id:e.userId, user_name:e.userName, proveedor:e.proveedor, rut:e.rut||null, monto:e.monto, fecha:e.fecha, ndoc:e.ndoc||null, items:e.items||null, categoria:e.categoria, centro_costo:e.centroCosto||null, comentario:e.comentario||null, status:e.status, admin_comment:e.adminComment||null, ai_extracted:e.aiExtracted||false, file_name:e.fileName||null, file_url:e.fileUrl||null, created_at:e.createdAt });
+const mapFromDB = r => ({ id:r.id, userId:r.user_id, userName:r.user_name, proveedor:r.proveedor, rut:r.rut, monto:Number(r.monto), fecha:r.fecha, ndoc:r.ndoc, items:r.items, categoria:r.categoria, centroCosto:r.centro_costo, comentario:r.comentario, status:r.status, adminComment:r.admin_comment, aiExtracted:r.ai_extracted, fileName:r.file_name, fileUrl:r.file_url, createdAt:r.created_at });
 
 async function loadAll() {
   try { const r = await sbFetch('/expenses?select=*&order=created_at.desc'); const d = await r.json(); return Array.isArray(d) ? d.map(mapFromDB) : []; } catch(e) { return []; }
 }
 async function saveExpense(exp) {
   try { await sbFetch('/expenses', { method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates,return=representation' }, body:JSON.stringify(mapToDB(exp)) }); } catch(e) {}
+}
+async function deleteExpense(id) {
+  try { await sbFetch(`/expenses?id=eq.${id}`, { method:'DELETE', headers:{ 'Prefer':'' } }); } catch(e) {}
+}
+async function uploadReceipt(file, expId) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  const path = `${expId}.${ext}`;
+  try {
+    const res = await fetch(`${SB_URL}/storage/v1/object/receipts/${path}`, {
+      method: 'POST',
+      headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`, 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'true' },
+      body: file
+    });
+    if (!res.ok) return null;
+    return `${SB_URL}/storage/v1/object/public/receipts/${path}`;
+  } catch(e) { return null; }
 }
 async function loadUsers() {
   try { const r = await sbFetch('/user_data?select=*'); const d = await r.json(); if (!Array.isArray(d) || !d.length) return null; const out={}; d.forEach(u=>{ out[u.user_id]={ assigned:Number(u.assigned), spent:Number(u.spent), balance:Number(u.balance) }; }); return out; } catch(e) { return null; }
@@ -58,7 +74,7 @@ async function extractDocumentData(file, apiKey) {
       try {
         const base64 = e.target.result.split(',')[1];
         const mimeType = file.type || 'image/jpeg';
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -76,7 +92,7 @@ async function extractDocumentData(file, apiKey) {
         const reason = candidate.finishReason;
         if (reason && reason !== 'STOP') throw new Error(`Gemini no procesó la imagen (${reason})`);
         const text = candidate.content?.parts?.[0]?.text || '{}';
-        resolve(JSON.parse(text.replace(/```json|```/g, '').trim()));
+        try { resolve(JSON.parse(text.replace(/```json|```/g, '').trim())); } catch { resolve({}); }
       } catch (err) { reject(err); }
     };
     reader.onerror = () => reject(new Error('Error leyendo archivo'));
@@ -108,7 +124,7 @@ const css = {
     return { ...variants[v], borderRadius:9, padding:'.5rem 1rem', fontSize:13, fontWeight:600, cursor:'pointer' };
   },
   badge: (s) => {
-    const m = { pending:{bg:'#2d1f00',color:S.warn,border:'1px solid #92400e'}, approved:{bg:'#052e16',color:S.ok,border:'1px solid #166534'}, rejected:{bg:'#1c0505',color:S.err,border:'1px solid #991b1b'} };
+    const m = { pending:{bg:'#2d1f00',color:S.warn,border:'1px solid #92400e'}, approved:{bg:'#052e16',color:S.ok,border:'1px solid #166534'}, rejected:{bg:'#1c0505',color:S.err,border:'1px solid #991b1b'}, liquidated:{bg:'#0c1f2d',color:S.inf,border:'1px solid #0e5a74'} };
     const d = m[s] || m.pending;
     return { display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:20, background:d.bg, color:d.color, border:d.border, whiteSpace:'nowrap' };
   },
@@ -133,7 +149,7 @@ function Toast({ msg, type, onDone }) {
 }
 
 function StatusBadge({ status }) {
-  const dot = { pending:'🟡', approved:'🟢', rejected:'🔴' }[status] || '🟡';
+  const dot = { pending:'🟡', approved:'🟢', rejected:'🔴', liquidated:'🔵' }[status] || '🟡';
   return <span style={css.badge(status)}>{dot} {STATUS_LABELS[status] || status}</span>;
 }
 
@@ -163,13 +179,24 @@ function FLabel({ children }) {
   return <div style={{ fontSize:12, color:S.tx2, marginBottom:4 }}>{children}</div>;
 }
 
-function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
+function ExpenseForm({ user, onSave, onCancel, toast, geminiKey, editExpense = null }) {
   const [file, setFile] = useState(null);
   const [ocr, setOcr] = useState(null);
   const [ocrErr, setOcrErr] = useState('');
   const [aiFields, setAiFields] = useState([]);
-  const [form, setForm] = useState({ proveedor:'', rut:'', monto:'', fecha:today(), ndoc:'', items:'', categoria:'Insumos', centroCosto:'Administración', comentario:'' });
   const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(editExpense ? {
+    proveedor: editExpense.proveedor || '',
+    rut: editExpense.rut || '',
+    monto: String(editExpense.monto || ''),
+    fecha: editExpense.fecha || today(),
+    ndoc: editExpense.ndoc || '',
+    items: editExpense.items || '',
+    categoria: editExpense.categoria || '',
+    centroCosto: editExpense.centroCosto || 'Administración',
+    comentario: editExpense.comentario || ''
+  } : { proveedor:'', rut:'', monto:'', fecha:today(), ndoc:'', items:'', categoria:'', centroCosto:'Administración', comentario:'' });
+
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
   const ai = k => aiFields.includes(k);
   const aiFilled = { ...css.input, borderColor:S.acc2 + '90', background:'#1a1000' };
@@ -197,9 +224,31 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
   const handleSubmit = async () => {
     if (!form.proveedor.trim()) { toast('Ingresa el proveedor', 'err'); return; }
     if (!form.monto || isNaN(Number(form.monto))) { toast('Monto inválido', 'err'); return; }
+    if (!form.categoria) { toast('Selecciona una categoría', 'err'); return; }
     setSaving(true);
-    const exp = { id:genId(), userId:user.id, userName:user.name, ...form, monto:Number(form.monto), status:'pending', createdAt:new Date().toISOString(), fileName:file?.name || null, adminComment:'', aiExtracted:aiFields.length > 0 };
-    await saveExpense(exp); toast('Rendición enviada', 'ok'); onSave(exp); setSaving(false);
+    const expId = editExpense?.id || genId();
+    let fileUrl = editExpense?.fileUrl || null;
+    if (file) {
+      const uploaded = await uploadReceipt(file, expId);
+      if (uploaded) fileUrl = uploaded;
+    }
+    const exp = {
+      id: expId,
+      userId: user.id,
+      userName: user.name,
+      ...form,
+      monto: Number(form.monto),
+      status: editExpense?.status || 'pending',
+      createdAt: editExpense?.createdAt || new Date().toISOString(),
+      fileName: file?.name || editExpense?.fileName || null,
+      fileUrl,
+      adminComment: editExpense?.adminComment || '',
+      aiExtracted: editExpense?.aiExtracted || aiFields.length > 0
+    };
+    await saveExpense(exp);
+    toast(editExpense ? 'Rendición actualizada' : 'Rendición enviada', 'ok');
+    onSave(exp);
+    setSaving(false);
   };
 
   const row = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 };
@@ -211,7 +260,7 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
         <div style={{ position:'relative', border:`2px dashed ${S.brd2}`, borderRadius:12, padding:'1.5rem', textAlign:'center', cursor:'pointer' }}>
           <input type="file" accept="image/*,.pdf" onChange={handleFile} disabled={ocr === 'loading'} style={{ position:'absolute', inset:0, opacity:0, cursor:'pointer', width:'100%', height:'100%' }} />
           {!file
-            ? <><div style={{ fontSize:28, marginBottom:4 }}>📎</div><div style={{ fontSize:13, color:S.tx2 }}>Foto o PDF de boleta / factura</div><div style={{ fontSize:11, color:S.tx3, marginTop:3 }}>JPG · PNG · PDF — máx 8 MB</div></>
+            ? <><div style={{ fontSize:28, marginBottom:4 }}>{editExpense?.fileName ? '📎' : '📎'}</div><div style={{ fontSize:13, color:S.tx2 }}>{editExpense?.fileName ? `Archivo actual: ${editExpense.fileName}` : 'Foto o PDF de boleta / factura'}</div><div style={{ fontSize:11, color:S.tx3, marginTop:3 }}>{editExpense?.fileName ? 'Haz clic para reemplazar' : 'JPG · PNG · PDF — máx 8 MB'}</div></>
             : <div style={{ display:'flex', alignItems:'center', gap:10, justifyContent:'center' }}>
                 <span style={{ fontSize:20 }}>{file.type.includes('pdf') ? '📄' : '🖼️'}</span>
                 <div style={{ textAlign:'left' }}><div style={{ fontSize:13, fontWeight:500 }}>{file.name}</div><div style={{ fontSize:11, color:S.tx3 }}>{(file.size / 1024).toFixed(0)} KB</div></div>
@@ -239,7 +288,13 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
       </div>
       <div style={row}>
         <div><FLabel>N° documento</FLabel><input style={ai('ndoc') ? aiFilled : css.input} value={form.ndoc} onChange={e => set('ndoc', e.target.value)} placeholder="00001" /></div>
-        <div><FLabel>Categoría</FLabel><select style={css.select} value={form.categoria} onChange={e => set('categoria', e.target.value)}>{CATS.map(c => <option key={c} style={{ background:S.bg2 }}>{c}</option>)}</select></div>
+        <div>
+          <FLabel>Categoría *</FLabel>
+          <select style={{ ...css.select, borderColor: !form.categoria ? S.warn : S.brd }} value={form.categoria} onChange={e => set('categoria', e.target.value)}>
+            <option value="" style={{ background:S.bg2, color:S.tx3 }}>— Selecciona categoría —</option>
+            {CATS.map(c => <option key={c} style={{ background:S.bg2 }}>{c}</option>)}
+          </select>
+        </div>
       </div>
       <div style={row}>
         <div><FLabel>Centro de costo</FLabel><select style={css.select} value={form.centroCosto} onChange={e => set('centroCosto', e.target.value)}>{COSTOS.map(c => <option key={c} style={{ background:S.bg2 }}>{c}</option>)}</select></div>
@@ -248,30 +303,39 @@ function ExpenseForm({ user, onSave, onCancel, toast, geminiKey }) {
       <div style={{ marginBottom:12 }}><FLabel>Comentario</FLabel><textarea style={css.textarea} value={form.comentario} onChange={e => set('comentario', e.target.value)} placeholder="Contexto adicional..." /></div>
       <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
         <button style={css.btn('secondary')} onClick={onCancel}>Cancelar</button>
-        <button style={{ ...css.btn('primary'), opacity:(saving || ocr === 'loading') ? .5 : 1 }} onClick={handleSubmit} disabled={saving || ocr === 'loading'}>{saving ? 'Guardando...' : 'Enviar rendición'}</button>
+        <button style={{ ...css.btn('primary'), opacity:(saving || ocr === 'loading') ? .5 : 1 }} onClick={handleSubmit} disabled={saving || ocr === 'loading'}>
+          {saving ? 'Guardando...' : editExpense ? 'Guardar cambios' : 'Enviar rendición'}
+        </button>
       </div>
     </div>
   );
 }
 
-function UserView({ user, expenses, userData, onNewExpense, toast, geminiKey }) {
+function UserView({ user, expenses, userData, onNewExpense, onReplaceExpense, onDeleteExpense, toast, geminiKey }) {
   const [tab, setTab] = useState('list');
-  const myExp = expenses.filter(e => e.userId === user.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const [editingExp, setEditingExp] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [archFilters, setArchFilters] = useState({ from: '', to: '' });
+  const myExp = expenses.filter(e => e.userId === user.id && e.status !== 'liquidated').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const archivedExp = expenses.filter(e => e.userId === user.id && e.status === 'liquidated' && (!archFilters.from || e.fecha >= archFilters.from) && (!archFilters.to || e.fecha <= archFilters.to)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const approved = myExp.filter(e => e.status === 'approved').reduce((s, e) => s + e.monto, 0);
   const pending = myExp.filter(e => e.status === 'pending').reduce((s, e) => s + e.monto, 0);
   const ud = userData[user.id] || { assigned: 0 };
 
+  const goEdit = (exp) => { setEditingExp(exp); setTab('nueva'); };
+  const cancelForm = () => { setEditingExp(null); setTab('list'); };
+
   return (
     <div>
       <div style={{ display:'flex', background:S.bg1, borderBottom:`1px solid ${S.brd}`, overflowX:'auto' }}>
-        {[['list', 'Mis Rendiciones'], ['nueva', 'Nueva Rendición']].map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)} style={{ padding:'10px 16px', fontSize:13, color:tab===k?S.acc2:S.tx2, background:'none', border:'none', borderBottom:tab===k?`2px solid ${S.acc}`:'2px solid transparent', cursor:'pointer', whiteSpace:'nowrap' }}>{l}</button>
+        {[['list', 'Mis Rendiciones'], ['archivadas', 'Archivadas'], ['nueva', editingExp ? 'Editar Rendición' : 'Nueva Rendición']].map(([k, l]) => (
+          <button key={k} onClick={() => { if (k === 'list') { setEditingExp(null); } setTab(k); }} style={{ padding:'10px 16px', fontSize:13, color:tab===k?S.acc2:S.tx2, background:'none', border:'none', borderBottom:tab===k?`2px solid ${S.acc}`:'2px solid transparent', cursor:'pointer', whiteSpace:'nowrap' }}>{l}</button>
         ))}
       </div>
 
       {tab === 'list' && <div style={{ padding:16, maxWidth:1100, margin:'0 auto' }}>
         <div style={{ background:S.bg2, border:`1px solid ${S.brd}`, borderRadius:14, padding:'16px 20px', marginBottom:14, display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
-          <div><div style={{ fontSize:12, color:S.tx2 }}>Fondo asignado</div><div style={{ fontSize:22, fontWeight:700, color:S.acc2 }}>{fmt(ud.assigned)}</div><div style={{ fontSize:12, color:S.tx2 }}>Saldo disponible: <b style={{ color:S.ok }}>{fmt(ud.assigned - approved - pending)}</b></div></div>
+          <div><div style={{ fontSize:12, color:S.tx2 }}>Fondo asignado</div><div style={{ fontSize:22, fontWeight:700, color:S.acc2 }}>{fmt(ud.assigned)}</div><div style={{ fontSize:12, color:S.tx2 }}>Saldo disponible: <b style={{ color:S.ok }}>{fmt(ud.assigned - pending)}</b></div></div>
           <div style={{ textAlign:'right' }}><div style={{ fontSize:12, color:S.tx2 }}>Aprobado</div><div style={{ fontSize:16, fontWeight:700, color:S.ok }}>{fmt(approved)}</div><div style={{ fontSize:12, color:S.tx2 }}>En revisión: <b style={{ color:S.inf }}>{fmt(pending)}</b></div></div>
         </div>
         {myExp.length === 0
@@ -279,9 +343,42 @@ function UserView({ user, expenses, userData, onNewExpense, toast, geminiKey }) 
           : <div style={{ overflowX:'auto', borderRadius:12, border:`1px solid ${S.brd}` }}>
               <table style={{ width:'100%', borderCollapse:'collapse', minWidth:560 }}>
                 <thead><tr style={{ background:S.bg2 }}>
-                  {['Fecha','Proveedor','Categoría','Monto','Estado','Obs.'].map(h => <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontSize:11, color:S.tx2, fontWeight:600, textTransform:'uppercase', letterSpacing:'.05em', borderBottom:`1px solid ${S.brd}` }}>{h}</th>)}
+                  {['Fecha','Proveedor','Categoría','Monto','Estado','Obs.',''].map(h => <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontSize:11, color:S.tx2, fontWeight:600, textTransform:'uppercase', letterSpacing:'.05em', borderBottom:`1px solid ${S.brd}` }}>{h}</th>)}
                 </tr></thead>
                 <tbody>{myExp.map(e => (
+                  <tr key={e.id} style={{ borderBottom:`1px solid ${S.brd}` }}>
+                    <td style={{ padding:'10px 12px', fontSize:12, color:S.tx2, whiteSpace:'nowrap' }}>{e.fecha}</td>
+                    <td style={{ padding:'10px 12px', fontSize:13 }}>{e.proveedor}{e.aiExtracted && <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:20, background:'#1a1200', color:S.acc2, border:`1px solid ${S.acc}`, marginLeft:4 }}>✨IA</span>}<br /><span style={{ fontSize:10, color:S.tx3 }}>{e.ndoc ? '#' + e.ndoc : ''}</span></td>
+                    <td style={{ padding:'10px 12px' }}><span style={{ fontSize:11, background:S.bg2, padding:'2px 7px', borderRadius:5, color:S.tx2 }}>{e.categoria}</span></td>
+                    <td style={{ padding:'10px 12px', fontWeight:600, whiteSpace:'nowrap', fontSize:13 }}>{fmt(e.monto)}</td>
+                    <td style={{ padding:'10px 12px' }}><StatusBadge status={e.status} /></td>
+                    <td style={{ padding:'10px 12px', fontSize:12, color:S.tx3, maxWidth:140 }}>{e.adminComment || e.comentario || '—'}</td>
+                    <td style={{ padding:'10px 12px', whiteSpace:'nowrap' }}>
+                      {e.status === 'pending' && <div style={{ display:'flex', gap:5 }}>
+                        <button style={{ ...css.btn('xs'), padding:'3px 8px', fontSize:11, borderRadius:7 }} onClick={() => goEdit(e)}>Editar</button>
+                        <button style={{ ...css.btn('err'), padding:'3px 8px', fontSize:11, borderRadius:7 }} onClick={() => setConfirmDelete(e)}>Anular</button>
+                      </div>}
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>}
+      </div>}
+
+      {tab === 'archivadas' && <div style={{ padding:16, maxWidth:1100, margin:'0 auto' }}>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:14, alignItems:'center' }}>
+          <input style={{ ...css.input, flex:1, minWidth:125 }} type="date" value={archFilters.from} onChange={e => setArchFilters(p => ({ ...p, from: e.target.value }))} />
+          <input style={{ ...css.input, flex:1, minWidth:125 }} type="date" value={archFilters.to} onChange={e => setArchFilters(p => ({ ...p, to: e.target.value }))} />
+          <button style={{ ...css.btn('secondary'), padding:'7px 12px', fontSize:12 }} onClick={() => setArchFilters({ from:'', to:'' })}>Limpiar</button>
+        </div>
+        {archivedExp.length === 0
+          ? <div style={{ textAlign:'center', padding:'3rem', color:S.tx3 }}><div style={{ fontSize:36, marginBottom:8 }}>🗄️</div>No tienes rendiciones liquidadas{(archFilters.from || archFilters.to) ? ' en ese rango' : ''}</div>
+          : <div style={{ overflowX:'auto', borderRadius:12, border:`1px solid ${S.brd}` }}>
+              <table style={{ width:'100%', borderCollapse:'collapse', minWidth:560 }}>
+                <thead><tr style={{ background:S.bg2 }}>
+                  {['Fecha','Proveedor','Categoría','Monto','Estado','Obs.'].map(h => <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontSize:11, color:S.tx2, fontWeight:600, textTransform:'uppercase', letterSpacing:'.05em', borderBottom:`1px solid ${S.brd}` }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{archivedExp.map(e => (
                   <tr key={e.id} style={{ borderBottom:`1px solid ${S.brd}` }}>
                     <td style={{ padding:'10px 12px', fontSize:12, color:S.tx2, whiteSpace:'nowrap' }}>{e.fecha}</td>
                     <td style={{ padding:'10px 12px', fontSize:13 }}>{e.proveedor}{e.aiExtracted && <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:20, background:'#1a1200', color:S.acc2, border:`1px solid ${S.acc}`, marginLeft:4 }}>✨IA</span>}<br /><span style={{ fontSize:10, color:S.tx3 }}>{e.ndoc ? '#' + e.ndoc : ''}</span></td>
@@ -296,9 +393,32 @@ function UserView({ user, expenses, userData, onNewExpense, toast, geminiKey }) 
       </div>}
 
       {tab === 'nueva' && <div style={{ padding:16, maxWidth:1100, margin:'0 auto' }}>
-        <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>Nueva rendición</div>
-        <div style={css.card}><ExpenseForm user={user} onSave={exp => { onNewExpense(exp); setTab('list'); }} onCancel={() => setTab('list')} toast={toast} geminiKey={geminiKey} /></div>
+        <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>{editingExp ? 'Editar rendición' : 'Nueva rendición'}</div>
+        <div style={css.card}>
+          <ExpenseForm
+            user={user}
+            editExpense={editingExp}
+            onSave={exp => {
+              if (editingExp) { onReplaceExpense(exp); } else { onNewExpense(exp); }
+              setEditingExp(null); setTab('list');
+            }}
+            onCancel={cancelForm}
+            toast={toast}
+            geminiKey={geminiKey}
+          />
+        </div>
       </div>}
+
+      {confirmDelete && <Modal title="Anular rendición" onClose={() => setConfirmDelete(null)}>
+        <div style={{ marginBottom:16, fontSize:13, color:S.tx2, lineHeight:1.5 }}>
+          ¿Anular la rendición de <b style={{ color:S.tx1 }}>{confirmDelete.proveedor}</b> por <b style={{ color:S.acc2 }}>{fmt(confirmDelete.monto)}</b>?<br />
+          <span style={{ fontSize:12, color:S.tx3, marginTop:4, display:'block' }}>Esta acción no se puede deshacer.</span>
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => setConfirmDelete(null)}>Cancelar</button>
+          <button style={{ ...css.btn('err'), flex:1 }} onClick={async () => { await onDeleteExpense(confirmDelete.id); setConfirmDelete(null); toast('Rendición anulada', 'ok'); }}>Anular rendición</button>
+        </div>
+      </Modal>}
     </div>
   );
 }
@@ -313,6 +433,13 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
   const [fundAmt, setFundAmt] = useState('');
   const [inlineAction, setInlineAction] = useState(null);
   const [inlineComment, setInlineComment] = useState('');
+  const [bulkModal, setBulkModal] = useState(false);
+  const [bulkComment, setBulkComment] = useState('');
+  const [bulkApproving, setBulkApproving] = useState(false);
+  const [adminEditExp, setAdminEditExp] = useState(null);
+  const [adminEditForm, setAdminEditForm] = useState({});
+  const [adminEditSaving, setAdminEditSaving] = useState(false);
+  const [liquidateConfirm, setLiquidateConfirm] = useState(null);
   const setF = (k, v) => setFilters(p => ({ ...p, [k]: v }));
 
   const pendingExp = expenses.filter(e => e.status === 'pending').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -320,11 +447,15 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
   const doApprove = async (exp, cmt) => {
     const upd = { ...exp, status: 'approved', adminComment: cmt };
     await onUpdateExpense(upd);
-    toast('✅ Rendición aprobada — fondo restituido', 'ok');
+    toast('✅ Rendición aprobada', 'ok');
   };
   const doReject = async (exp, cmt) => {
     await onUpdateExpense({ ...exp, status: 'rejected', adminComment: cmt });
     toast('❌ Rendición rechazada', 'err');
+  };
+  const doLiquidate = async (exp) => {
+    await onUpdateExpense({ ...exp, status: 'liquidated' });
+    toast('🔵 Rendición liquidada', 'ok');
   };
   const handleAction = async () => {
     if (!comment.trim()) { toast('El comentario es obligatorio', 'err'); return; }
@@ -338,16 +469,41 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
     else await doReject(inlineAction.exp, inlineComment);
     setInlineAction(null); setInlineComment('');
   };
+  const doBulkApprove = async () => {
+    if (!bulkComment.trim()) { toast('El comentario es obligatorio', 'err'); return; }
+    setBulkApproving(true);
+    const toApprove = [...pendingExp];
+    for (const exp of toApprove) {
+      await onUpdateExpense({ ...exp, status: 'approved', adminComment: bulkComment });
+    }
+    toast(`✅ ${toApprove.length} rendicion${toApprove.length !== 1 ? 'es aprobadas' : ' aprobada'}`, 'ok');
+    setBulkApproving(false); setBulkModal(false); setBulkComment('');
+  };
+  const openAdminEdit = (exp) => {
+    setAdminEditExp(exp);
+    setAdminEditForm({ proveedor: exp.proveedor || '', rut: exp.rut || '', monto: String(exp.monto || ''), fecha: exp.fecha || '', ndoc: exp.ndoc || '', items: exp.items || '', categoria: exp.categoria || '', centroCosto: exp.centroCosto || '', comentario: exp.comentario || '' });
+  };
+  const saveAdminEdit = async () => {
+    if (!adminEditForm.proveedor.trim() || !adminEditForm.monto || !adminEditForm.fecha || !adminEditForm.categoria) { toast('Proveedor, monto, fecha y categoría son obligatorios', 'err'); return; }
+    setAdminEditSaving(true);
+    const updated = { ...adminEditExp, proveedor: adminEditForm.proveedor.trim(), rut: adminEditForm.rut.trim() || null, monto: Number(adminEditForm.monto), fecha: adminEditForm.fecha, ndoc: adminEditForm.ndoc.trim() || null, items: adminEditForm.items.trim() || null, categoria: adminEditForm.categoria, centroCosto: adminEditForm.centroCosto || null, comentario: adminEditForm.comentario.trim() || null };
+    await onUpdateExpense(updated);
+    toast('✏ Rendición corregida', 'ok');
+    setAdminEditSaving(false);
+    setAdminEditExp(null);
+    if (detailExp?.id === updated.id) setDetailExp(updated);
+  };
+
   const assignFund = async () => {
     if (!fundModal || !fundAmt || isNaN(Number(fundAmt))) return;
     const amt = Number(fundAmt);
     const ud = userData[fundModal.id] || { assigned: 0 };
-    const newSpent = expenses.filter(e => e.userId === fundModal.id && e.status === 'approved').reduce((s, e) => s + e.monto, 0);
+    const newSpent = expenses.filter(e => e.userId === fundModal.id && e.status === 'pending').reduce((s, e) => s + e.monto, 0);
     await onUpdateUserData({ ...userData, [fundModal.id]: { ...ud, assigned: ud.assigned + amt, spent: newSpent, balance: (ud.assigned + amt) - newSpent } });
     toast(`Fondo asignado a ${fundModal.name}`, 'ok'); setFundModal(null); setFundAmt('');
   };
 
-  const approvedExp = expenses.filter(e => e.status === 'approved');
+  const approvedExp = expenses.filter(e => e.status === 'approved' || e.status === 'liquidated');
   const catPieData = CATS.map((c, i) => ({ name: c, value: approvedExp.filter(e => e.categoria === c).reduce((s, e) => s + e.monto, 0), color: CAT_COLORS[i] })).filter(d => d.value > 0);
   const monthUserData = USERS.map(u => ({ name: u.name.split(' ')[0], value: approvedExp.filter(e => e.userId === u.id && e.fecha?.startsWith(thisMonth())).reduce((s, e) => s + e.monto, 0), color: u.color }));
   const monthlyTrend = () => {
@@ -370,10 +526,10 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const exportCSV = () => {
-    const rows = [['Fecha','Usuario','Proveedor','RUT','N°Doc','Categoría','Centro','Monto','Estado','IA','Obs']];
-    filtered.forEach(e => rows.push([e.fecha, e.userName, e.proveedor, e.rut||'', e.ndoc||'', e.categoria, e.centroCosto, e.monto, STATUS_LABELS[e.status]||'', e.aiExtracted?'Sí':'No', e.adminComment||e.comentario||'']));
+    const rows = [['Fecha','Usuario','Proveedor','RUT','N°Doc','Categoría','Centro','Monto','Estado','Ítems','IA','Comentario','Obs. Admin']];
+    filtered.forEach(e => rows.push([e.fecha, e.userName, e.proveedor, e.rut||'', e.ndoc||'', e.categoria, e.centroCosto||'', e.monto, STATUS_LABELS[e.status]||'', e.items||'', e.aiExtracted?'Sí':'No', e.comentario||'', e.adminComment||'']));
     const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-    const b = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const b = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'rendiciones.csv'; a.click();
   };
 
@@ -388,11 +544,11 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
     try {
       const XLSX = await import("https://esm.sh/xlsx");
       const wb = XLSX.utils.book_new();
-      const sheet1 = [['Fecha','Usuario','Proveedor','Monto (CLP)','Categoría','Centro Costo','Estado','N° Doc','Comentario']];
-      expenses.forEach(e => sheet1.push([e.fecha, e.userName, e.proveedor, e.monto, e.categoria, e.centroCosto||'', STATUS_LABELS[e.status]||e.status, e.ndoc||'', e.adminComment||e.comentario||'']));
-      sheet1.push([], ['TOTAL','','', expenses.reduce((s,e)=>s+e.monto,0),'','','','','']);
+      const sheet1 = [['Fecha','Usuario','Proveedor','Monto (CLP)','Categoría','Centro Costo','Estado','N° Doc','Ítems','Comentario','Obs. Admin']];
+      expenses.forEach(e => sheet1.push([e.fecha, e.userName, e.proveedor, e.monto, e.categoria, e.centroCosto||'', STATUS_LABELS[e.status]||e.status, e.ndoc||'', e.items||'', e.comentario||'', e.adminComment||'']));
+      sheet1.push([], ['TOTAL','','', expenses.reduce((s,e)=>s+e.monto,0),'','','','','','','']);
       const ws1 = XLSX.utils.aoa_to_sheet(sheet1);
-      ws1['!cols'] = [{ wch:12 },{ wch:18 },{ wch:24 },{ wch:14 },{ wch:14 },{ wch:16 },{ wch:12 },{ wch:10 },{ wch:30 }];
+      ws1['!cols'] = [{ wch:12 },{ wch:18 },{ wch:24 },{ wch:14 },{ wch:14 },{ wch:16 },{ wch:12 },{ wch:10 },{ wch:24 },{ wch:30 },{ wch:30 }];
       ws1['!freeze'] = { xSplit:0, ySplit:1 };
       XLSX.utils.book_append_sheet(wb, ws1, 'Gastos');
       const catMap = {};
@@ -403,7 +559,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
       ws2['!cols'] = [{ wch:16 },{ wch:16 },{ wch:16 },{ wch:10 }];
       XLSX.utils.book_append_sheet(wb, ws2, 'Por Categoría');
       const userMap = {};
-      expenses.forEach(e => { if (!userMap[e.userId]) userMap[e.userId] = { name:e.userName, total:0, approved:0, pending:0, count:0 }; userMap[e.userId].total += e.monto; userMap[e.userId].count++; if(e.status==='approved') userMap[e.userId].approved += e.monto; if(e.status==='pending') userMap[e.userId].pending += e.monto; });
+      expenses.forEach(e => { if (!userMap[e.userId]) userMap[e.userId] = { name:e.userName, total:0, approved:0, pending:0, count:0 }; userMap[e.userId].total += e.monto; userMap[e.userId].count++; if(e.status==='approved' || e.status==='liquidated') userMap[e.userId].approved += e.monto; if(e.status==='pending') userMap[e.userId].pending += e.monto; });
       const sheet3 = [['Usuario','Total (CLP)','Aprobado (CLP)','En Revisión (CLP)','Cantidad']];
       Object.values(userMap).sort((a,b)=>b.total-a.total).forEach(d => sheet3.push([d.name, d.total, d.approved, d.pending, d.count]));
       const ws3 = XLSX.utils.aoa_to_sheet(sheet3);
@@ -411,8 +567,8 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
       XLSX.utils.book_append_sheet(wb, ws3, 'Por Usuario');
       XLSX.writeFile(wb, fname + '.xlsx');
     } catch(e) {
-      const rows = [['Fecha','Usuario','Proveedor','Monto','Categoría','Estado','Comentario']];
-      expenses.forEach(e => rows.push([e.fecha, e.userName, e.proveedor, e.monto, e.categoria, STATUS_LABELS[e.status]||'', e.adminComment||e.comentario||'']));
+      const rows = [['Fecha','Usuario','Proveedor','Monto','Categoría','Estado','Ítems','Comentario','Obs. Admin']];
+      expenses.forEach(e => rows.push([e.fecha, e.userName, e.proveedor, e.monto, e.categoria, STATUS_LABELS[e.status]||'', e.items||'', e.comentario||'', e.adminComment||'']));
       const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
       const b = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = fname+'.csv'; a.click();
@@ -449,7 +605,6 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
     const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
     const W = 210, M = 20, CW = 170;
 
-    // Header
     doc.setFillColor(18, 18, 31);
     doc.rect(0, 0, W, 42, 'F');
     doc.setFontSize(20); doc.setFont('helvetica','bold'); doc.setTextColor(226,226,240);
@@ -460,7 +615,6 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
     doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(74,222,128);
     doc.text('APROBADA', W-M-19, 20.5, { align:'center' });
 
-    // Monto destacado
     let y = 52;
     doc.setFillColor(26,21,53); doc.roundedRect(M, y, CW, 20, 3, 3, 'F');
     doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(169,157,245);
@@ -469,7 +623,6 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
     doc.text(fmt(exp.monto), M+CW-6, y+13, { align:'right' });
     y += 28;
 
-    // Detalle
     doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(30,30,50);
     doc.text('Detalle de Rendición', M, y); y += 5;
     doc.setDrawColor(200,200,220); doc.line(M, y, M+CW, y); y += 7;
@@ -484,7 +637,6 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
       y += Math.max(7, lines.length*6);
     });
 
-    // Aprobación
     y += 3; doc.setDrawColor(200,200,220); doc.line(M, y, M+CW, y); y += 7;
     doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(30,30,50);
     doc.text('Aprobación', M, y); y += 7;
@@ -500,7 +652,6 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
       doc.text(lines, M+48, y); y += lines.length*6+4;
     }
 
-    // Footer
     doc.setFillColor(18,18,31); doc.rect(0,278,W,19,'F');
     doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(107,104,128);
     doc.text('Fondos Corporativos · Boragó Restaurant · Santiago, Chile', W/2, 287, { align:'center' });
@@ -560,14 +711,17 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
       {tab === 'pending' && <div style={P}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
           <div style={{ fontWeight:700, fontSize:15 }}>Rendiciones pendientes</div>
-          {pendingExp.length > 0 && <div style={{ fontSize:12, color:S.tx2 }}>{pendingExp.length} pendiente{pendingExp.length !== 1 ? 's' : ''} · {fmt(totalPending)}</div>}
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            {pendingExp.length > 0 && <span style={{ fontSize:12, color:S.tx2 }}>{pendingExp.length} pendiente{pendingExp.length !== 1 ? 's' : ''} · {fmt(totalPending)}</span>}
+            {pendingExp.length > 1 && <button style={{ ...css.btn('ok'), padding:'6px 14px', fontSize:12 }} onClick={() => { setBulkModal(true); setBulkComment(''); }}>✓ Aprobar todas ({pendingExp.length})</button>}
+          </div>
         </div>
         {pendingExp.length === 0
           ? <div style={{ textAlign:'center', padding:'3rem', color:S.tx3 }}><div style={{ fontSize:36, marginBottom:8 }}>✅</div>No hay rendiciones pendientes</div>
           : <div style={{ overflowX:'auto', borderRadius:12, border:`1px solid ${S.brd}` }}>
               <table style={{ width:'100%', borderCollapse:'collapse', minWidth:600 }}>
                 <thead><tr style={{ background:S.bg2 }}>
-                  {['Fecha','Usuario','Proveedor','Cat.','Monto','Acciones'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  {['Fecha','Usuario','Proveedor','Cat.','Monto','Respaldo','Acciones'].map(h => <th key={h} style={thStyle}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {pendingExp.map(e => {
@@ -581,15 +735,21 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
                         <td style={tdStyle}><span style={{ fontSize:11, background:S.bg2, padding:'2px 7px', borderRadius:5, color:S.tx2 }}>{e.categoria}</span></td>
                         <td style={{ ...tdStyle, fontWeight:700, color:S.acc2, whiteSpace:'nowrap' }}>{fmt(e.monto)}</td>
                         <td style={tdStyle}>
+                          {e.fileUrl
+                            ? <a href={e.fileUrl} target="_blank" rel="noreferrer" style={{ fontSize:12, color:S.inf, textDecoration:'none', display:'inline-flex', alignItems:'center', gap:4 }}>📎 Ver</a>
+                            : <span style={{ fontSize:11, color:S.tx3 }}>Sin archivo</span>}
+                        </td>
+                        <td style={tdStyle}>
                           <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
                             <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => setDetailExp(e)}>Ver</button>
+                            <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => openAdminEdit(e)}>✏</button>
                             <button style={{ ...css.btn('ok'), padding:'5px 10px', fontSize:12 }} onClick={() => { setInlineAction({ exp:e, type:'approve' }); setInlineComment(''); }}>✓ Aprobar</button>
                             <button style={{ ...css.btn('err'), padding:'5px 10px', fontSize:12 }} onClick={() => { setInlineAction({ exp:e, type:'reject' }); setInlineComment(''); }}>✕ Rechazar</button>
                           </div>
                         </td>
                       </tr>,
                       isOpen && <tr key={e.id + '_inline'}>
-                        <td colSpan={6} style={{ padding:0, background:S.bg0, borderTop:`1px solid ${S.brd}` }}>
+                        <td colSpan={7} style={{ padding:0, background:S.bg0, borderTop:`1px solid ${S.brd}` }}>
                           <div style={{ padding:'10px 14px', display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
                             <div style={{ flex:1, minWidth:220 }}>
                               <div style={{ fontSize:12, color:inlineAction.type==='approve'?S.ok:S.err, marginBottom:4, fontWeight:600 }}>
@@ -615,7 +775,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12, alignItems:'center' }}>
           <select style={{ ...css.select, flex:1, minWidth:110 }} value={filters.user} onChange={e => setF('user', e.target.value)}><option value="">Todos</option>{USERS.map(u => <option key={u.id} value={u.id} style={{ background:S.bg2 }}>{u.name.split(' ')[0]}</option>)}</select>
           <select style={{ ...css.select, flex:1, minWidth:110 }} value={filters.cat} onChange={e => setF('cat', e.target.value)}><option value="">Categoría</option>{CATS.map(c => <option key={c} style={{ background:S.bg2 }}>{c}</option>)}</select>
-          <select style={{ ...css.select, flex:1, minWidth:110 }} value={filters.status} onChange={e => setF('status', e.target.value)}><option value="">Estado</option><option value="pending" style={{ background:S.bg2 }}>Pendiente</option><option value="approved" style={{ background:S.bg2 }}>Aprobada</option><option value="rejected" style={{ background:S.bg2 }}>Rechazada</option></select>
+          <select style={{ ...css.select, flex:1, minWidth:110 }} value={filters.status} onChange={e => setF('status', e.target.value)}><option value="">Estado</option><option value="pending" style={{ background:S.bg2 }}>Pendiente</option><option value="approved" style={{ background:S.bg2 }}>Aprobada</option><option value="liquidated" style={{ background:S.bg2 }}>Liquidada</option><option value="rejected" style={{ background:S.bg2 }}>Rechazada</option></select>
           <input style={{ ...css.input, flex:1, minWidth:125 }} type="date" value={filters.from} onChange={e => setF('from', e.target.value)} />
           <input style={{ ...css.input, flex:1, minWidth:125 }} type="date" value={filters.to} onChange={e => setF('to', e.target.value)} />
           <button style={{ ...css.btn('secondary'), padding:'7px 12px', fontSize:12 }} onClick={() => setFilters({ user:'', cat:'', status:'', from:'', to:'' })}>Limpiar</button>
@@ -625,7 +785,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
           ? <div style={{ textAlign:'center', padding:'3rem', color:S.tx3 }}><div style={{ fontSize:36, marginBottom:8 }}>📋</div>Sin rendiciones con esos filtros</div>
           : <div style={{ overflowX:'auto', borderRadius:12, border:`1px solid ${S.brd}` }}>
               <table style={{ width:'100%', borderCollapse:'collapse', minWidth:600 }}>
-                <thead><tr style={{ background:S.bg2 }}>{['Fecha','Usuario','Proveedor','Categoría','Monto','Estado','Acciones'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                <thead><tr style={{ background:S.bg2 }}>{['Fecha','Usuario','Proveedor','Categoría','Monto','Estado','Respaldo','Acciones'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                 <tbody>{filtered.map(e => {
                   const u = USERS.find(x => x.id === e.userId) || { color:'#888', initials:'??' };
                   return (
@@ -636,9 +796,16 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
                       <td style={tdStyle}><span style={{ fontSize:11, background:S.bg2, padding:'2px 7px', borderRadius:5, color:S.tx2 }}>{e.categoria}</span></td>
                       <td style={{ ...tdStyle, fontWeight:600, whiteSpace:'nowrap' }}>{fmt(e.monto)}</td>
                       <td style={tdStyle}><StatusBadge status={e.status} /></td>
+                      <td style={tdStyle}>
+                        {e.fileUrl
+                          ? <a href={e.fileUrl} target="_blank" rel="noreferrer" style={{ fontSize:12, color:S.inf, textDecoration:'none', display:'inline-flex', alignItems:'center', gap:4 }}>📎 Ver</a>
+                          : <span style={{ fontSize:11, color:S.tx3 }}>—</span>}
+                      </td>
                       <td style={tdStyle}><div style={{ display:'flex', gap:6 }}>
                         <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => setDetailExp(e)}>Ver</button>
-                        {e.status === 'approved' && <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => generatePDF(e)}>↓ PDF</button>}
+                        <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => openAdminEdit(e)}>✏</button>
+                        {(e.status === 'approved' || e.status === 'liquidated') && <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => generatePDF(e)}>↓ PDF</button>}
+                        {e.status === 'approved' && <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => setLiquidateConfirm(e)}>🔵 Liquidar</button>}
                         {e.status === 'pending' && <>
                           <button style={{ ...css.btn('ok'), padding:'5px 9px', fontSize:12 }} onClick={() => { setActionModal({ exp:e, type:'approve' }); setComment(''); }}>✓</button>
                           <button style={{ ...css.btn('err'), padding:'5px 9px', fontSize:12 }} onClick={() => { setActionModal({ exp:e, type:'reject' }); setComment(''); }}>✕</button>
@@ -677,12 +844,19 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
       {detailExp && <Modal title="Detalle rendición" onClose={() => setDetailExp(null)}>
         {detailExp.aiExtracted && <div style={{ background:S.bg1, border:`1px solid ${S.brd}`, borderRadius:10, padding:'10px 14px', marginBottom:12, fontSize:12, color:S.acc2 }}>✨ Datos extraídos automáticamente por Gemini</div>}
         <div style={{ ...css.card, marginBottom:12 }}>
-          {[['Usuario',detailExp.userName],['Proveedor',detailExp.proveedor],['RUT',detailExp.rut||'—'],['N° Documento',detailExp.ndoc||'—'],['Fecha',detailExp.fecha],['Monto',fmt(detailExp.monto)],['Categoría',detailExp.categoria],['Centro costo',detailExp.centroCosto],['Ítems',detailExp.items||'—'],['Comentario',detailExp.comentario||'—'],['Archivo',detailExp.fileName||'—']].map(([l,v],i) => (
+          {[['Usuario',detailExp.userName],['Proveedor',detailExp.proveedor],['RUT',detailExp.rut||'—'],['N° Documento',detailExp.ndoc||'—'],['Fecha',detailExp.fecha],['Monto',fmt(detailExp.monto)],['Categoría',detailExp.categoria],['Centro costo',detailExp.centroCosto||'—'],['Ítems',detailExp.items||'—'],['Comentario',detailExp.comentario||'—']].map(([l,v],i) => (
             <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', padding:'7px 0', borderBottom:`1px solid ${S.brd}` }}>
               <span style={{ fontSize:12, color:S.tx2, flexShrink:0, marginRight:12 }}>{l}</span>
               <span style={{ fontSize:13, fontWeight:500, textAlign:'right', color:l==='Monto'?S.acc2:S.tx1 }}>{v}</span>
             </div>
           ))}
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 0', borderBottom:`1px solid ${S.brd}` }}>
+            <span style={{ fontSize:12, color:S.tx2 }}>Archivo</span>
+            <span style={{ fontSize:13, fontWeight:500, textAlign:'right' }}>
+              {detailExp.fileName || '—'}
+              {detailExp.fileUrl && <a href={detailExp.fileUrl} target="_blank" rel="noreferrer" style={{ marginLeft:8, color:S.inf, fontSize:12, textDecoration:'none' }}>Ver respaldo ↗</a>}
+            </span>
+          </div>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 0' }}>
             <span style={{ fontSize:12, color:S.tx2 }}>Estado</span>
             <StatusBadge status={detailExp.status} />
@@ -690,7 +864,9 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
           {detailExp.adminComment && <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', borderTop:`1px solid ${S.brd}` }}><span style={{ fontSize:12, color:S.tx2 }}>Obs. Finanzas</span><span style={{ fontSize:13, fontWeight:500, textAlign:'right' }}>{detailExp.adminComment}</span></div>}
         </div>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-          {detailExp.status === 'approved' && <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => generatePDF(detailExp)}>↓ Comprobante PDF</button>}
+          <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => { openAdminEdit(detailExp); setDetailExp(null); }}>✏ Editar</button>
+          {(detailExp.status === 'approved' || detailExp.status === 'liquidated') && <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => generatePDF(detailExp)}>↓ PDF</button>}
+          {detailExp.status === 'approved' && <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => { setLiquidateConfirm(detailExp); setDetailExp(null); }}>🔵 Liquidar</button>}
           {detailExp.status === 'pending' && <>
             <button style={{ ...css.btn('ok'), flex:1 }} onClick={() => { setActionModal({ exp:detailExp, type:'approve' }); setComment(''); setDetailExp(null); }}>✓ Aprobar</button>
             <button style={{ ...css.btn('err'), flex:1 }} onClick={() => { setActionModal({ exp:detailExp, type:'reject' }); setComment(''); setDetailExp(null); }}>✕ Rechazar</button>
@@ -699,7 +875,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
       </Modal>}
 
       {actionModal && <Modal title={actionModal.type === 'approve' ? 'Confirmar aprobación' : 'Confirmar rechazo'} onClose={() => setActionModal(null)}>
-        <div style={{ padding:'10px 14px', marginBottom:12, borderRadius:9, fontSize:13, background:actionModal.type==='approve'?'#052e16':'#1c0505', border:`1px solid ${actionModal.type==='approve'?'#166534':'#991b1b'}`, color:actionModal.type==='approve'?S.ok:S.err }}>
+        <div style={{ padding:'10px 14px', marginBottom:12, borderRadius:9, fontSize:13, background:actionModal.type==='approve'?'#052e16':'#1c0505', border:`1px solid ${actionModal.type==='approve'?'#166634':'#991b1b'}`, color:actionModal.type==='approve'?S.ok:S.err }}>
           {actionModal.exp.proveedor} — {fmt(actionModal.exp.monto)}
         </div>
         <div style={{ marginBottom:12 }}>
@@ -711,6 +887,58 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
           <button style={{ ...css.btn(actionModal.type==='approve'?'ok':'err'), flex:1, opacity:!comment.trim()?.5:1 }} onClick={handleAction} disabled={!comment.trim()}>
             {actionModal.type === 'approve' ? '✓ Aprobar' : '✕ Rechazar'}
           </button>
+        </div>
+      </Modal>}
+
+      {bulkModal && <Modal title={`Aprobar todas las rendiciones (${pendingExp.length})`} onClose={() => { setBulkModal(false); setBulkComment(''); }}>
+        <div style={{ marginBottom:12, fontSize:13, color:S.tx2, lineHeight:1.6 }}>
+          Se aprobarán <b style={{ color:S.tx1 }}>{pendingExp.length} rendiciones</b> por un total de <b style={{ color:S.acc2 }}>{fmt(totalPending)}</b>.
+          <br />El comentario se aplicará a todas.
+        </div>
+        <div style={{ marginBottom:14 }}>
+          <FLabel>Comentario de aprobación *</FLabel>
+          <textarea style={css.textarea} value={bulkComment} onChange={e => setBulkComment(e.target.value)} placeholder="Ej: Revisadas y aprobadas. Mes de mayo." autoFocus />
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => { setBulkModal(false); setBulkComment(''); }}>Cancelar</button>
+          <button style={{ ...css.btn('ok'), flex:1, opacity:(!bulkComment.trim() || bulkApproving) ? .5 : 1 }} onClick={doBulkApprove} disabled={!bulkComment.trim() || bulkApproving}>
+            {bulkApproving ? 'Aprobando...' : `✓ Aprobar ${pendingExp.length} rendiciones`}
+          </button>
+        </div>
+      </Modal>}
+
+      {adminEditExp && <Modal title="Corregir rendición" onClose={() => setAdminEditExp(null)}>
+        <div style={{ display:'grid', gap:10 }}>
+          <div><FLabel>Proveedor *</FLabel><input style={css.input} value={adminEditForm.proveedor} onChange={e => setAdminEditForm(p=>({...p,proveedor:e.target.value}))} /></div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            <div><FLabel>RUT proveedor</FLabel><input style={css.input} value={adminEditForm.rut} onChange={e => setAdminEditForm(p=>({...p,rut:e.target.value}))} placeholder="12.345.678-9" /></div>
+            <div><FLabel>N° Documento</FLabel><input style={css.input} value={adminEditForm.ndoc} onChange={e => setAdminEditForm(p=>({...p,ndoc:e.target.value}))} /></div>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            <div><FLabel>Monto (CLP) *</FLabel><input style={css.input} type="number" value={adminEditForm.monto} onChange={e => setAdminEditForm(p=>({...p,monto:e.target.value}))} /></div>
+            <div><FLabel>Fecha *</FLabel><input style={css.input} type="date" value={adminEditForm.fecha} onChange={e => setAdminEditForm(p=>({...p,fecha:e.target.value}))} /></div>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            <div><FLabel>Categoría *</FLabel><select style={css.select} value={adminEditForm.categoria} onChange={e => setAdminEditForm(p=>({...p,categoria:e.target.value}))}><option value="">Seleccionar...</option>{CATS.map(c=><option key={c} style={{background:S.bg2}}>{c}</option>)}</select></div>
+            <div><FLabel>Centro de costo</FLabel><select style={css.select} value={adminEditForm.centroCosto} onChange={e => setAdminEditForm(p=>({...p,centroCosto:e.target.value}))}><option value="">—</option>{COSTOS.map(c=><option key={c} style={{background:S.bg2}}>{c}</option>)}</select></div>
+          </div>
+          <div><FLabel>Ítems / descripción</FLabel><input style={css.input} value={adminEditForm.items} onChange={e => setAdminEditForm(p=>({...p,items:e.target.value}))} placeholder="Detalle de la compra" /></div>
+          <div><FLabel>Comentario del usuario</FLabel><input style={css.input} value={adminEditForm.comentario} onChange={e => setAdminEditForm(p=>({...p,comentario:e.target.value}))} /></div>
+        </div>
+        <div style={{ display:'flex', gap:8, marginTop:14 }}>
+          <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => setAdminEditExp(null)}>Cancelar</button>
+          <button style={{ ...css.btn('primary'), flex:1, opacity:adminEditSaving?.5:1 }} onClick={saveAdminEdit} disabled={adminEditSaving}>{adminEditSaving ? 'Guardando...' : '✏ Guardar cambios'}</button>
+        </div>
+      </Modal>}
+
+      {liquidateConfirm && <Modal title="Liquidar rendición" onClose={() => setLiquidateConfirm(null)}>
+        <div style={{ marginBottom:16, fontSize:13, color:S.tx2, lineHeight:1.5 }}>
+          ¿Marcar como liquidada la rendición de <b style={{ color:S.tx1 }}>{liquidateConfirm.proveedor}</b> por <b style={{ color:S.acc2 }}>{fmt(liquidateConfirm.monto)}</b>?<br />
+          <span style={{ fontSize:12, color:S.tx3, marginTop:4, display:'block' }}>Esto la archiva y deja de contarla en el saldo disponible del usuario.</span>
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => setLiquidateConfirm(null)}>Cancelar</button>
+          <button style={{ ...css.btn('primary'), flex:1 }} onClick={async () => { await doLiquidate(liquidateConfirm); setLiquidateConfirm(null); }}>🔵 Confirmar liquidación</button>
         </div>
       </Modal>}
 
@@ -745,7 +973,9 @@ export default function App() {
     })();
   }, []);
 
-  const handleNewExpense = async (exp) => setExpenses(p => [exp, ...p]);
+  const handleNewExpense = (exp) => setExpenses(p => [exp, ...p]);
+  const handleReplaceExpense = (exp) => setExpenses(p => p.map(e => e.id === exp.id ? exp : e));
+  const handleDeleteExpense = async (id) => { await deleteExpense(id); setExpenses(p => p.filter(e => e.id !== id)); };
   const handleUpdateExpense = async (upd) => { await saveExpense(upd); setExpenses(p => p.map(e => e.id === upd.id ? upd : e)); };
   const handleUpdateUserData = async (d) => { await saveUsers(d); setUserData(d); };
 
@@ -812,7 +1042,7 @@ export default function App() {
       </div>
       {isAdmin
         ? <AdminView expenses={expenses} userData={userData} onUpdateExpense={handleUpdateExpense} onUpdateUserData={handleUpdateUserData} toast={showToast} />
-        : <UserView user={user} expenses={expenses} userData={userData} onNewExpense={handleNewExpense} toast={showToast} geminiKey={geminiKey} />}
+        : <UserView user={user} expenses={expenses} userData={userData} onNewExpense={handleNewExpense} onReplaceExpense={handleReplaceExpense} onDeleteExpense={handleDeleteExpense} toast={showToast} geminiKey={geminiKey} />}
       {toast && <Toast key={toast.key} msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
     </div>
   );

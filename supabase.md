@@ -7,7 +7,7 @@
 - **URL REST:** https://lvzriwmlsyxgydtzyjan.supabase.co/rest/v1
 
 ## Credenciales
-- **Anon Key** (pública, segura para frontend): en línea 22 de `fondos_app_2.jsx`
+- **Anon Key** (pública, segura para frontend): en línea 23 de `src/App.jsx` (`SB_KEY`)
 - La anon key está protegida por RLS — solo permite las operaciones configuradas en las políticas
 
 ## Tablas
@@ -29,10 +29,11 @@ Almacena todas las rendiciones de gastos.
 | categoria | text | Categoría del gasto |
 | centro_costo | text | Centro de costo (nullable) |
 | comentario | text | Comentario del usuario (nullable) |
-| status | text | Estado: pending / approved / rejected |
+| status | text | Estado: pending / approved / liquidated / rejected |
 | admin_comment | text | Comentario del administrador (nullable) |
 | ai_extracted | boolean | Si los datos fueron extraídos por OCR |
 | file_name | text | Nombre del archivo subido (nullable) |
+| file_url | text | URL pública en Supabase Storage (nullable) |
 | created_at | timestamptz | Timestamp de creación |
 
 ### `user_data`
