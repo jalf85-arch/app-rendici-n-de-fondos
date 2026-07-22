@@ -410,6 +410,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
   const [adminEditExp, setAdminEditExp] = useState(null);
   const [adminEditForm, setAdminEditForm] = useState({});
   const [adminEditSaving, setAdminEditSaving] = useState(false);
+  const [liquidateConfirm, setLiquidateConfirm] = useState(null);
   const setF = (k, v) => setFilters(p => ({ ...p, [k]: v }));
 
   const pendingExp = expenses.filter(e => e.status === 'pending').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -422,6 +423,10 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
   const doReject = async (exp, cmt) => {
     await onUpdateExpense({ ...exp, status: 'rejected', adminComment: cmt });
     toast('❌ Rendición rechazada', 'err');
+  };
+  const doLiquidate = async (exp) => {
+    await onUpdateExpense({ ...exp, status: 'liquidated' });
+    toast('🔵 Rendición liquidada', 'ok');
   };
   const handleAction = async () => {
     if (!comment.trim()) { toast('El comentario es obligatorio', 'err'); return; }
@@ -771,6 +776,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
                         <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => setDetailExp(e)}>Ver</button>
                         <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => openAdminEdit(e)}>✏</button>
                         {(e.status === 'approved' || e.status === 'liquidated') && <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => generatePDF(e)}>↓ PDF</button>}
+                        {e.status === 'approved' && <button style={{ ...css.btn('xs'), padding:'4px 8px', fontSize:12, borderRadius:7 }} onClick={() => setLiquidateConfirm(e)}>🔵 Liquidar</button>}
                         {e.status === 'pending' && <>
                           <button style={{ ...css.btn('ok'), padding:'5px 9px', fontSize:12 }} onClick={() => { setActionModal({ exp:e, type:'approve' }); setComment(''); }}>✓</button>
                           <button style={{ ...css.btn('err'), padding:'5px 9px', fontSize:12 }} onClick={() => { setActionModal({ exp:e, type:'reject' }); setComment(''); }}>✕</button>
@@ -831,6 +837,7 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
           <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => { openAdminEdit(detailExp); setDetailExp(null); }}>✏ Editar</button>
           {(detailExp.status === 'approved' || detailExp.status === 'liquidated') && <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => generatePDF(detailExp)}>↓ PDF</button>}
+          {detailExp.status === 'approved' && <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => { setLiquidateConfirm(detailExp); setDetailExp(null); }}>🔵 Liquidar</button>}
           {detailExp.status === 'pending' && <>
             <button style={{ ...css.btn('ok'), flex:1 }} onClick={() => { setActionModal({ exp:detailExp, type:'approve' }); setComment(''); setDetailExp(null); }}>✓ Aprobar</button>
             <button style={{ ...css.btn('err'), flex:1 }} onClick={() => { setActionModal({ exp:detailExp, type:'reject' }); setComment(''); setDetailExp(null); }}>✕ Rechazar</button>
@@ -892,6 +899,17 @@ function AdminView({ expenses, userData, onUpdateExpense, onUpdateUserData, toas
         <div style={{ display:'flex', gap:8, marginTop:14 }}>
           <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => setAdminEditExp(null)}>Cancelar</button>
           <button style={{ ...css.btn('primary'), flex:1, opacity:adminEditSaving?.5:1 }} onClick={saveAdminEdit} disabled={adminEditSaving}>{adminEditSaving ? 'Guardando...' : '✏ Guardar cambios'}</button>
+        </div>
+      </Modal>}
+
+      {liquidateConfirm && <Modal title="Liquidar rendición" onClose={() => setLiquidateConfirm(null)}>
+        <div style={{ marginBottom:16, fontSize:13, color:S.tx2, lineHeight:1.5 }}>
+          ¿Marcar como liquidada la rendición de <b style={{ color:S.tx1 }}>{liquidateConfirm.proveedor}</b> por <b style={{ color:S.acc2 }}>{fmt(liquidateConfirm.monto)}</b>?<br />
+          <span style={{ fontSize:12, color:S.tx3, marginTop:4, display:'block' }}>Esto la archiva y deja de contarla en el saldo disponible del usuario.</span>
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <button style={{ ...css.btn('secondary'), flex:1 }} onClick={() => setLiquidateConfirm(null)}>Cancelar</button>
+          <button style={{ ...css.btn('primary'), flex:1 }} onClick={async () => { await doLiquidate(liquidateConfirm); setLiquidateConfirm(null); }}>🔵 Confirmar liquidación</button>
         </div>
       </Modal>}
 
